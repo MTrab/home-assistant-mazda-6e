@@ -51,6 +51,7 @@ autolabeler:
   - label: 'feature request'
     branch:
       - '/feature\/.+/'
+      - '/feat\/.+/'
   - label: 'enhancement'
     branch:
       - '/enhancement\/.+/'

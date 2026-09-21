@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - master
+      - main
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [ opened, reopened, synchronize ]
 
 jobs:
   autolabel_pull_requests:
