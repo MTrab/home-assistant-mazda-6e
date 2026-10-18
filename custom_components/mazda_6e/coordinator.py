@@ -142,7 +142,8 @@ class Mazda6eCoordinator(DataUpdateCoordinator):
                 _LOGGER.warning("Mazda MQTT authentication failed; using polling")
             except Exception as err:
                 # Do not expose broker payloads, credentials or vehicle IDs.
-                _LOGGER.warning("Mazda MQTT unavailable (%s); using polling", type(err).__name__)
+                reason = err.code if isinstance(err, MazdaApiError) and err.code else type(err).__name__
+                _LOGGER.warning("Mazda MQTT unavailable (%s); using polling", reason)
             finally:
                 self._mqtt_ready = False
                 for task in (listener, changed):

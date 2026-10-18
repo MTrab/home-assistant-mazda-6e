@@ -294,6 +294,10 @@ def test_regional_bootstrap_and_shared_identity_connection(modules, monkeypatch,
         configs = [push_config(), second]
         responses = []
         for config in configs:
+            if region == "europe":
+                responses.append({"data": [{"children": [{
+                    "msgType": "commands", "serviceCode": "THU_Service", "deviceId": "car-cloud-unit",
+                }]}]})
             responses.extend([
                 {"data": config}, {"data": {"authToken": "mqtt-password"}},
             ])
@@ -329,6 +333,10 @@ def test_regional_bootstrap_and_shared_identity_connection(modules, monkeypatch,
             assert updates == [(2, {"vehicleStatus": {"soc": 73}})]
             expected_host = "changanauto.sg" if region == "asia" else "changanauto.com.de"
             assert all(expected_host in call.args[0] for call in client._request.await_args_list)
+            if region == "europe":
+                assert client._request.await_args_list[1].args[2] == {
+                    "deviceType": "1", "deviceId": "car-cloud-unit",
+                }
             if region == "asia":
                 result = await client.async_get_vehicle_status(2)
                 assert result["vehicleStatus"]["soc"] == 72

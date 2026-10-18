@@ -2,6 +2,7 @@ import asyncio
 import aiohttp
 import time
 import logging
+import re
 from contextlib import suppress
 from copy import deepcopy
 from collections.abc import Callable
@@ -40,6 +41,11 @@ class MazdaLoginError(Exception):
 class MazdaApiError(Exception):
     """Mazda rejected an authenticated API request."""
 
+    def __init__(self, message, *, code=None):
+        super().__init__(message)
+        value = str(code) if code is not None else ""
+        self.code = value if re.fullmatch(r"[A-Z0-9_]{1,64}", value) else None
+
 
 def now_ts():
     return str(int(time.time()))
@@ -74,7 +80,7 @@ class Mazda6EApi:
         """generic request method with token refresh handling"""
         async with self.session.post(url, headers=headers, json=body) as resp:
             if resp.status != 200:
-                raise MazdaApiError(f"Mazda API request failed with HTTP {resp.status}")
+                raise MazdaApiError(f"Mazda API request failed with HTTP {resp.status}", code=f"HTTP_{resp.status}")
             try:
                 raw = await resp.json()
             except (aiohttp.ContentTypeError, ValueError):
@@ -102,7 +108,7 @@ class Mazda6EApi:
             return await self._request(url, headers, body, retry=False)
         code = raw.get("code", "unknown")
         message = raw.get("msg", "unknown error")
-        raise MazdaApiError(f"Mazda API request rejected ({code}: {message})")
+        raise MazdaApiError(f"Mazda API request rejected ({code}: {message})", code=code)
 
     async def login_email_password(self, email_enc, password_enc):
         if not self.control_public_key:
@@ -340,10 +346,40 @@ class Mazda6EApi:
         if len(device_id) != 32 or any(char not in "0123456789abcdefABCDEF" for char in device_id):
             raise MazdaApiError("MQTT requires a 32-character device ID")
 
+        connection_body = {
+            "tuid": "", "carId": str(vehicle_id), "deviceId": device_id, "deviceType": "1",
+        }
+        if self.region == REGION_EUROPE:
+            functions = await self._request(
+                f"{ca_base}/user-apigw/vot-connect-conf-center/api/device/appGetCarConfFunc",
+                headers, {"carId": str(vehicle_id)},
+            )
+
+            def cloud_device(value):
+                if isinstance(value, dict):
+                    # The verified European getConnConf exchange uses a THU
+                    # device from the car's cloud function config, not the app UUID.
+                    if (value.get("msgType") == "commands"
+                            and value.get("serviceCode") == "THU_Service"
+                            and isinstance(value.get("deviceId"), str)
+                            and value["deviceId"]):
+                        return value["deviceId"]
+                    return cloud_device(value.get("children"))
+                if isinstance(value, list):
+                    for child in value:
+                        if found := cloud_device(child):
+                            return found
+                return None
+
+            european_device = cloud_device(functions.get("data"))
+            if european_device is None:
+                raise MazdaApiError("European MQTT cloud device is missing", code="MQTT_NO_CLOUD_DEVICE")
+            connection_body = {"deviceType": "1", "deviceId": european_device}
+
         config_response = await self._request(
             f"{ca_base}/user-apigw/vot-connect-conf-center/api/device/getConnConf",
             headers,
-            {"tuid": "", "carId": str(vehicle_id), "deviceId": device_id, "deviceType": "1"},
+            connection_body,
         )
         token_response = await self._request(
             f"{ca_base}/user-apigw/vot-connect-auth-center/api/auth/getAuthTokenByUserId",
