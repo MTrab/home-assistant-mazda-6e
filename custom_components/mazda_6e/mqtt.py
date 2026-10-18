@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
+from time import monotonic
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -332,6 +333,18 @@ def status_patch(values: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _mapped_field_names(patch: Mapping[str, Any]) -> list[str]:
+    names = []
+    for key, value in patch.items():
+        if isinstance(value, dict):
+            names.extend(f"{key}.{name}" for name in _mapped_field_names(value))
+        elif isinstance(value, list):
+            names.extend(f"{key}[{index}]" for index, item in enumerate(value) if item is not None)
+        else:
+            names.append(key)
+    return sorted(names)
+
+
 class MazdaMqttConnection:
     """One authenticated connection, with one reader and correlated read requests.
 
@@ -353,6 +366,44 @@ class MazdaMqttConnection:
         self._write_lock = asyncio.Lock()
         self._notifications = set(notification_topics(config))
         self._ping_sent = None
+        self._report_stats = {}
+
+    @property
+    def notification_diagnostics(self) -> list[dict]:
+        """Field names and counters only; never payload values or device IDs."""
+        now = monotonic()
+        result = []
+        for index, topic in enumerate(sorted(self._notifications), 1):
+            stats = self._report_stats.get(topic, {})
+            result.append({
+                "subscription": index,
+                "kind": "/".join(topic.split("/")[-2:]),
+                "reports": stats.get("reports", 0),
+                "mapped_reports": stats.get("mapped_reports", 0),
+                "envelope_fields": stats.get("envelope_fields", []),
+                "fields_seen": dict(stats.get("fields_seen", {})),
+                "mapped_fields_seen": dict(stats.get("mapped_fields_seen", {})),
+                "seconds_since_report": round(now - stats["last_report"], 1) if stats else None,
+                "last_interval_seconds": stats.get("last_interval_seconds"),
+            })
+        return result
+
+    def _record_report(self, topic, payload, values, patch) -> None:
+        now = monotonic()
+        stats = self._report_stats.setdefault(topic, {
+            "reports": 0, "mapped_reports": 0, "fields_seen": {}, "mapped_fields_seen": {},
+        })
+        previous = stats.get("last_report")
+        stats["last_interval_seconds"] = round(now - previous, 3) if previous is not None else None
+        stats["last_report"] = now
+        stats["reports"] += 1
+        stats["mapped_reports"] += bool(patch)
+        stats["envelope_fields"] = sorted(key for key in payload if isinstance(key, str) and len(key) <= 80)[:64]
+        for target, names in (("fields_seen", values), ("mapped_fields_seen", _mapped_field_names(patch))):
+            counts = stats[target]
+            for name in names:
+                if isinstance(name, str) and len(name) <= 80 and (name in counts or len(counts) < 256):
+                    counts[name] = counts.get(name, 0) + 1
 
     @property
     def connected(self) -> bool:
@@ -454,7 +505,9 @@ class MazdaMqttConnection:
                 # Reconnect refreshes a full snapshot; retained data must not
                 # overwrite it. Duplicate deliveries are safe partial merges.
                 if topic in self._notifications and not first & 0x01:
-                    patch = status_patch(_params(payload, self._secret_key))
+                    values = _params(payload, self._secret_key)
+                    patch = status_patch(values)
+                    self._record_report(topic, payload, values, patch)
                     if patch:
                         self._on_notification(topic, patch)
         except asyncio.CancelledError:

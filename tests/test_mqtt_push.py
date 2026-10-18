@@ -162,13 +162,23 @@ def test_persistent_reports_update_directly_and_snapshots_reuse_connection(modul
             topic = "$vdp/device-one/" + suffix
             broker.report(topic, {"soc": 73}, retained=True)
             broker.report("$vdp/other-car/properties/report", {"soc": 99})
-            broker.report(topic, {"unknown": 1})
+            broker.report(topic, {"unknown": "private-payload-value"})
             broker.report(topic, {"soc": 74, "passengerDoor": 1}, qos=1)
             await asyncio.wait_for(received.wait(), 1)
             assert len(updates) == 1
             assert updates[0][1] == {"vehicleStatus": {"soc": 74}, "door": {"doors": [None, 1, None, None]}}
             assert broker.pubacks == [b"\x00\x23"]
             assert broker.requests == reads_before  # No status read per report.
+            stats = next(item for item in client.notification_diagnostics if item["reports"])
+            assert stats["kind"] == suffix
+            assert stats["reports"] == 2
+            assert stats["mapped_reports"] == 1
+            assert stats["fields_seen"] == {"unknown": 1, "soc": 1, "passengerDoor": 1}
+            assert stats["mapped_fields_seen"] == {"door.doors[1]": 1, "vehicleStatus.soc": 1}
+            serialized = json.dumps(client.notification_diagnostics)
+            assert "private-payload-value" not in serialized
+            assert "device-one" not in serialized
+            assert "password" not in serialized
             assert client.connected
         finally:
             await client.async_close()
@@ -313,6 +323,7 @@ def test_regional_bootstrap_and_shared_identity_connection(modules, monkeypatch,
                 self.config = config
                 self.closed = False
                 self.async_read_status = AsyncMock(return_value={"vehicleStatus": {"soc": 72}})
+                self.notification_diagnostics = [{"reports": 0}]
 
             async def async_connect(self):
                 pass
@@ -328,6 +339,7 @@ def test_regional_bootstrap_and_shared_identity_connection(modules, monkeypatch,
         try:
             await asyncio.wait_for(ready.wait(), 1)
             assert len(connections) == 1
+            assert client.mqtt_report_diagnostics == [{"connection": 1, "subscriptions": [{"reports": 0}]}]
             connection = connections[0]
             connection.notify("$vdp/car-two-one/properties/report", {"vehicleStatus": {"soc": 73}})
             assert updates == [(2, {"vehicleStatus": {"soc": 73}})]

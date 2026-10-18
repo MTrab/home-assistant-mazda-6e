@@ -40,7 +40,10 @@ async def async_get_config_entry_diagnostics(
     diagnostics = {
         "info": async_redact_data(config_entry.data, TO_REDACT_CONFIG),
         "vehicles": vehicles,
-        "mqtt": data_entry.mqtt_diagnostics,
+        "mqtt": {
+            **data_entry.mqtt_diagnostics,
+            "connections": data_entry.api.mqtt_report_diagnostics,
+        },
     }
 
     return diagnostics

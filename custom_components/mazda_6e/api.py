@@ -454,6 +454,14 @@ class Mazda6EApi:
                 with suppress(asyncio.CancelledError, Exception):
                     await task
 
+    @property
+    def mqtt_report_diagnostics(self) -> list[dict]:
+        connections = dict.fromkeys(connection for connection, _ in self._mqtt_connections.values())
+        return [
+            {"connection": index, "subscriptions": connection.notification_diagnostics}
+            for index, connection in enumerate(connections, 1)
+        ]
+
     async def async_get_battery_preheating_plan(self, vehicle_id: int) -> dict | None:
         """Return the captured battery-preheating plan for a vehicle."""
         headers = {
