@@ -96,6 +96,29 @@ def test_unverified_enums_and_invalid_measurements_preserve_https_state(modules)
     }) == {}
 
 
+def test_enum_diagnostics_are_bounded_numeric_and_do_not_apply_states(modules):
+    _, _, mqtt = modules
+    client = mqtt.MazdaMqttConnection(push_config(), "password", lambda *_: None)
+    topic = "$vdp/device-one/properties/report"
+    for index in range(40):
+        values = {
+            "frontDefrostStatus": index % 2, "steeringWheelHeating": "1",
+            "driverDoorLock": "private-value", "chargeStatus": "NaN",
+            "token": "secret", "unknown": "private-value",
+            "latestDate": "2026-10-18T13:00:00Z",
+        }
+        client._record_report(topic, {"rs": "encrypted"}, values, mqtt.status_patch(values))
+    stats = next(item for item in client.notification_diagnostics if item["reports"])
+    assert stats["mapped_reports"] == 0
+    assert len(stats["enum_reports"]) == 32
+    assert stats["enum_reports"][-1]["values"] == {
+        "frontDefrostStatus": 1, "steeringWheelHeating": 1,
+    }
+    assert stats["enum_reports"][-1]["lastUpdatedAt"] == 1792328400000
+    assert "private-value" not in json.dumps(stats)
+    assert "secret" not in json.dumps(stats)
+
+
 @pytest.mark.parametrize("encrypted", [False, True])
 def test_report_envelope_supports_declared_data_and_params(modules, encrypted):
     _, _, mqtt = modules

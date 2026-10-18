@@ -24,6 +24,15 @@ class MazdaMqttError(Exception):
     """Raised when a read-only MQTT status exchange fails."""
 
 
+_ENUM_FIELDS = (
+    "frontDefrostStatus", "frontDefrosterSwitch", "rearDefrosterSwitch",
+    "steeringWheelHeating", "driverDoorLock", "passengerDoorLock",
+    "leftRearDoorLock", "rightRearDoorLock", "chargeStatus",
+    "batteryChargeStatus", "ChrgSts", "acChargeGunConnectionState",
+    "dcDhargeGunConnectionState", "powerStatusFeedBack",
+)
+
+
 def _mqtt_string(value: str) -> bytes:
     encoded = value.encode()
     return struct.pack("!H", len(encoded)) + encoded
@@ -376,7 +385,7 @@ class MazdaMqttConnection:
 
     @property
     def notification_diagnostics(self) -> list[dict]:
-        """Field names and counters only; never payload values or device IDs."""
+        """Counters and selected numeric states; no credentials or device IDs."""
         now = monotonic()
         result = []
         device_ids = sorted(filter(None, {_topic_device_id(topic) for topic in self._observed_topics}))
@@ -394,6 +403,12 @@ class MazdaMqttConnection:
                 "mapped_fields_seen": dict(stats.get("mapped_fields_seen", {})),
                 "seconds_since_report": round(now - stats["last_report"], 1) if stats else None,
                 "last_interval_seconds": stats.get("last_interval_seconds"),
+                "enum_reports": [
+                    {"age_seconds": round(now - report["received"], 1),
+                     "lastUpdatedAt": report["lastUpdatedAt"],
+                     "values": dict(report["values"])}
+                    for report in stats.get("enum_reports", [])
+                ],
             })
         return result
 
@@ -408,6 +423,17 @@ class MazdaMqttConnection:
         stats["reports"] += 1
         stats["mapped_reports"] += bool(patch)
         stats["envelope_fields"] = sorted(key for key in payload if isinstance(key, str) and len(key) <= 80)[:64]
+        enum_values = {
+            field: number for field in _ENUM_FIELDS
+            if (number := _number(values.get(field))) is not None
+        }
+        if enum_values:
+            reports = stats.setdefault("enum_reports", [])
+            reports.append({
+                "received": now, "lastUpdatedAt": normalize_status(values)["lastUpdatedAt"],
+                "values": enum_values,
+            })
+            del reports[:-32]
         for target, names in (("fields_seen", values), ("mapped_fields_seen", _mapped_field_names(patch))):
             counts = stats[target]
             for name in names:

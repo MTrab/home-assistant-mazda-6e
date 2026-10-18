@@ -157,9 +157,16 @@ Control credentials are redacted along with the other config-entry credentials.
 Per-connection subscription diagnostics also count all non-retained reports,
 including reports with no mapped fields. They expose received field names,
 mapped output paths and the interval between the last two messages on each
-subscription. Payload values, credentials and device/topic IDs are not retained.
+subscription. Credentials and device/topic IDs are not retained.
 These counters reset when a connection is rebuilt. The measured interval is
 MQTT message timing, not a measurement of the Mazda app's polling interval.
+
+Each subscription also keeps its last 32 reports containing selected numeric
+enum fields for defrost, steering-wheel heating, door locks, charging and power.
+`enum_reports` exposes these values, the vehicle timestamp and report age, so
+control transitions can be compared with HTTPS without storing arbitrary
+payloads. Non-numeric values are excluded, and unverified states are not applied
+to entities. This history resets on reconnect and is bounded in memory.
 Already-subscribed `properties/get/res` messages are also observed, including
 responses with no matching HA request. These are reported separately from
 `properties/report` and `events/up` and are not applied as unsolicited state
