@@ -231,6 +231,39 @@ make older vehicle telemetry appear fresh. Received-message diagnostics still
 count them and list their field names. The earlier mapped-report count by itself
 is therefore not evidence of climate, charging or lock telemetry delivery.
 
+### Further observed states
+
+The saved EU MQTT response and HTTPS status also establish the following codes.
+These translations are shared by EU and Asia; they have not been observed on an
+Asia vehicle. Codes outside this table are still omitted from patches.
+
+| MQTT | HTTPS | Observed translation |
+| --- | --- | --- |
+| `lowBeam`, `highBeam`, `positionLamp` | Same names under `lamp` | 0 → 0 |
+| `turnLndicatorLeft`, `turnLndicatorRight` | `lamp.leftTurn`, `lamp.rightTurn` | 0 → 0 |
+| `driverSeatHeatStatus`, `passengerSeatHeatStatus` | Front-seat `heatStatus` | 0 → 0 |
+| `driverSeatAirStatus`, `passengerSeatAirStatus` | Front-seat `ventStatus` | 0 → 0 |
+| `lf/rf/lr/rrPressureWarning` | Corresponding `tire.*.status` | 0 → 0 |
+| `carStatus` | `vehicleStatus.status` | 2 → 2 (parked) |
+| `dcDhargeGunConnectionState` | `charge.dcChargeGunConnectStatus` | 0 → 0 |
+| Both AC and DC connection states | `charge.chargeConStatus` | Both 0 → 0 |
+
+A front seat's mode is set to off only when the report supplies both heat and
+ventilation as off. Missing or unknown values do not establish a combined mode.
+An AC-disconnected report alone cannot establish that the car is unplugged: the
+DC state must also be present and known to be disconnected.
+
+The rear-seat value 6 is not interpreted as level 3. The saved MQTT response
+contains 6 for rear heat and ventilation while HTTPS contains 0. Likewise,
+`totalCurrent=10` is not copied to `chargeCurrent`, which was 0 in HTTPS.
+Speed units, coordinate validity, active seat levels, lamp-on codes, charging
+states and warning codes still require conversion evidence.
+
+Numeric report history now includes seat, lamp and tire-warning codes, car
+status, speed and the candidate current fields. It records ordinary reports;
+it sends no commands or extra property requests. Tests cover resetting old
+HTTPS states, incomplete reports and preservation when a code is unknown.
+
 Tests use explicit minimal Home Assistant facades. The Windows test environment
 does not include a running Home Assistant instance. Pure utility tests bypass
 the HA entry-point import when HA is not installed. Existing lock/login facade

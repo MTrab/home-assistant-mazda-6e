@@ -154,6 +154,68 @@ def test_observed_enum_values_translate_to_https_values(modules):
     }) == {}
 
 
+def test_observed_off_reports_clear_previous_https_states(modules):
+    _, _, mqtt = modules
+    original = {
+        "vehicleStatus": {"status": 1},
+        "lamp": {"lowBeam": 1, "highBeam": 1, "positionLamp": 1, "leftTurn": 1, "rightTurn": 1},
+        "seat": {
+            "leftFront": {"mode": 1, "heatStatus": 3, "ventStatus": 0},
+            "rightFront": {"mode": 2, "heatStatus": 0, "ventStatus": 2},
+            "leftBack": {"mode": 0, "heatStatus": 0, "ventStatus": 0},
+        },
+        "tire": {"leftFront": {"status": 1, "pressure": 240}},
+        "charge": {"chargeConStatus": 1, "dcChargeGunConnectStatus": 1},
+    }
+    patch = mqtt.status_patch({
+        "carStatus": 2, "lowBeam": 0, "highBeam": 0, "positionLamp": 0,
+        "turnLndicatorLeft": 0, "turnLndicatorRight": 0,
+        "driverSeatHeatStatus": 0, "driverSeatAirStatus": 0,
+        "passengerSeatHeatStatus": 0, "passengerSeatAirStatus": 0,
+        "leftBackSeatHeatStatus": 6, "leftBackSeatVentilateStatus": 6,
+        "lfPressureWarning": 0,
+        "acChargeGunConnectionState": 0, "dcDhargeGunConnectionState": 0,
+    })
+    result = mqtt.apply_status_patch(original, patch)
+    assert result["vehicleStatus"]["status"] == 2
+    assert result["lamp"] == dict.fromkeys(original["lamp"], 0)
+    for position in ("leftFront", "rightFront"):
+        assert result["seat"][position] == {"mode": 0, "heatStatus": 0, "ventStatus": 0}
+    assert "leftBack" not in patch["seat"]
+    assert result["tire"]["leftFront"] == {"status": 0, "pressure": 240}
+    assert result["charge"] == {"chargeConStatus": 0, "dcChargeGunConnectStatus": 0}
+    assert original["seat"]["leftFront"]["mode"] == 1
+
+
+def test_incomplete_seat_or_plug_report_does_not_invent_combined_state(modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({"driverSeatHeatStatus": 0}) == {
+        "seat": {"leftFront": {"heatStatus": 0}},
+    }
+    assert mqtt.status_patch({"acChargeGunConnectionState": 0}) == {}
+    assert mqtt.status_patch({"dcDhargeGunConnectionState": 0}) == {
+        "charge": {"dcChargeGunConnectStatus": 0},
+    }
+    assert mqtt.status_patch({
+        "driverSeatHeatStatus": 0, "driverSeatAirStatus": 3,
+        "acChargeGunConnectionState": 0, "dcDhargeGunConnectionState": 1,
+    }) == {"seat": {"leftFront": {"heatStatus": 0}}}
+
+
+def test_remaining_unverified_codes_do_not_replace_https_values(modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({
+        "carStatus": 1, "lowBeam": 1, "highBeam": 2, "positionLamp": True,
+        "turnLndicatorLeft": 1, "turnLndicatorRight": 3,
+        "driverSeatHeatStatus": 6, "passengerSeatHeatStatus": 2,
+        "driverSeatAirStatus": 1, "passengerSeatAirStatus": 3,
+        "lfPressureWarning": 1, "rfPressureWarning": 2,
+        "lrPressureWarning": 3, "rrPressureWarning": 255,
+        "acChargeGunConnectionState": 1, "dcDhargeGunConnectionState": 1,
+        "totalCurrent": 10, "chargeCurrentVal": 0, "vehicleSpeed": 20,
+    }) == {}
+
+
 @pytest.mark.parametrize("encrypted", [False, True])
 def test_report_envelope_supports_declared_data_and_params(modules, encrypted):
     _, _, mqtt = modules

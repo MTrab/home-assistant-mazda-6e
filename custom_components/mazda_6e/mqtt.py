@@ -30,6 +30,13 @@ _ENUM_FIELDS = (
     "leftRearDoorLock", "rightRearDoorLock", "chargeStatus",
     "batteryChargeStatus", "ChrgSts", "acChargeGunConnectionState",
     "dcDhargeGunConnectionState", "powerStatusFeedBack",
+    "driverSeatHeatStatus", "passengerSeatHeatStatus",
+    "driverSeatAirStatus", "passengerSeatAirStatus",
+    "leftBackSeatHeatStatus", "rightBackSeatHeatStatus",
+    "leftBackSeatVentilateStatus", "rightBackSeatVentilateStatus",
+    "lowBeam", "highBeam", "positionLamp", "turnLndicatorLeft", "turnLndicatorRight",
+    "lfPressureWarning", "rfPressureWarning", "lrPressureWarning", "rrPressureWarning",
+    "carStatus", "vehicleSpeed", "chargeCurrentVal", "obcChrgInpAcI", "totalCurrent",
 )
 
 
@@ -691,12 +698,28 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
         switch = _enum(values["frontDefrosterSwitch"], {0: 0, 1: 1})
         defrost = switch if defrost is None or switch == defrost else None
     tires = {}
-    for position, field in (
-        ("leftFront", "lfTyrePressure"), ("rightFront", "rfTyrePressure"),
-        ("leftBack", "lrTyrePressure"), ("rightBack", "rrTyrePressure"),
+    for position, field, warning in (
+        ("leftFront", "lfTyrePressure", "lfPressureWarning"),
+        ("rightFront", "rfTyrePressure", "rfPressureWarning"),
+        ("leftBack", "lrTyrePressure", "lrPressureWarning"),
+        ("rightBack", "rrTyrePressure", "rrPressureWarning"),
     ):
         pressure = _number(values.get(field))
-        tires[position] = {"pressure": int(pressure) if pressure is not None else None}
+        tires[position] = {
+            "pressure": int(pressure) if pressure is not None else None,
+            "status": _enum(values.get(warning), {0: 0}),
+        }
+    seats = {}
+    for position, prefix in (("leftFront", "driver"), ("rightFront", "passenger")):
+        heat = _enum(values.get(f"{prefix}SeatHeatStatus"), {0: 0})
+        vent = _enum(values.get(f"{prefix}SeatAirStatus"), {0: 0})
+        seats[position] = {
+            "heatStatus": heat,
+            "ventStatus": vent,
+            "mode": 0 if heat == 0 and vent == 0 else None,
+        }
+    ac_plug = _enum(values.get("acChargeGunConnectionState"), {0: 0})
+    dc_plug = _enum(values.get("dcDhargeGunConnectionState"), {0: 0})
     return {
         "lastUpdatedAt": _number(updated),
         "vehicleStatus": {
@@ -705,6 +728,7 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             "totalMileage": _number(values.get("totalOdometer")),
             "powerStatus": _enum(values.get("powerStatusFeedBack"), {0: 0, 2: 2}),
             "steeringWheelHeater": _enum(values.get("steeringWheelHeating"), {1: 0}),
+            "status": _enum(values.get("carStatus"), {2: 2}),
         },
         "door": {"doors": [
             _number(values.get("driverDoor")), _number(values.get("passengerDoor")),
@@ -718,6 +742,15 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             _number(values.get("leftRearWindow")), _number(values.get("rightRearWindow")),
         ]},
         "tire": tires,
+        "seat": seats,
+        "lamp": {
+            target: _enum(values.get(source), {0: 0})
+            for target, source in (
+                ("lowBeam", "lowBeam"), ("highBeam", "highBeam"),
+                ("positionLamp", "positionLamp"),
+                ("leftTurn", "turnLndicatorLeft"), ("rightTurn", "turnLndicatorRight"),
+            )
+        },
         "hvac": {
             "insideTemp": inside * 10 if inside is not None else None,
             "remoteTemp": target * 10 if target is not None else None,
@@ -729,6 +762,8 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
         "charge": {
             "chargeStatus": _enum(values.get("chargeStatus"), {3: 0}),
             "maxSocPercent": _number(values.get("chargeSoc")),
+            "chargeConStatus": 0 if ac_plug == 0 and dc_plug == 0 else None,
+            "dcChargeGunConnectStatus": dc_plug,
             "acChargeCurrent": _number(_first(values, "BattACChrgInCurr", "battACChrgInCurr")),
             "dcChargeCurrent": _number(_first(values, "BattDCChrgInCurr", "battDCChrgInCurr")),
             "remainChargeTime": charge_minutes,
