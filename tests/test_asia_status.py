@@ -184,9 +184,15 @@ def test_normalize_does_not_guess_enums(modules):
     assert status["door"]["driverLock"] is None
 
 
-def test_charge_time_sentinel_is_unknown(modules):
+def test_charge_time_sentinel_matches_https_and_clears_previous_estimate(modules):
+    from custom_components.mazda_6e.helpers.validators import remaining_charge_time
+
     _, _, mqtt = modules
-    assert mqtt.normalize_status({"chargDeltMins": 8191})["charge"]["remainChargeTime"] is None
+    patch = mqtt.status_patch({"chargDeltMins": 8191})
+    status = mqtt.apply_status_patch({"charge": {"remainChargeTime": 45}}, patch)
+    assert status["charge"]["remainChargeTime"] == 8191
+    assert remaining_charge_time(status["charge"]["remainChargeTime"]) is None
+    assert mqtt.status_patch({"chargDeltMins": None}) == {}
 
 
 def test_asia_uses_bootstrap_and_mqtt(modules, monkeypatch):

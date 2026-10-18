@@ -683,8 +683,6 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             except ValueError:
                 updated = None
     charge_minutes = _number(values.get("chargDeltMins"))
-    if charge_minutes == 8191:
-        charge_minutes = None
     inside = _number(values.get("vehicleTemperature"))
     target = _number(values.get("airConditioningSetTemperature"))
     humidity = _number(values.get("innerHumidity"))

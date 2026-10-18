@@ -126,6 +126,31 @@ The available Android 1.2.3 DEX extracts contain empty implementations for the
 relevant `CarConditionManager` methods and native refresh handlers. They do not
 establish the missing conversions or which transport a manual app refresh uses.
 
+Further static inspection located the exact conversion entry point:
+`com.changan.mobile.oversea.common.carcontrol.entity.MqttCarDataExtKt`
+`.toCarConditionEntity(CarData, CarConditionEntity)`. Its DEX code item reserves
+1180 instruction units, but contains only `const/4 v0, 0`, `return-object v0`
+and NOPs in all five available extracts. The decompiler's failed method body is
+therefore not usable conversion code. A search of 1005 saved memory mappings
+for nearby references to the relevant CarData getters found no candidate body;
+this search does not establish that no recoverable implementation exists.
+
+Other implementations were checked, not treated as Mazda protocol specifications:
+
+- [Sunek0's MQTT normalizer](https://github.com/Sunek0/ha-mazda-6e-cx6/blob/195928b2eed8/mazda_sdk/mazda/mqtt.py)
+  copies `frontDefrostStatus` directly and divides seat heat values by two.
+  The former conflicts with the observed EU 1/2-to-0/1 translation; applying the
+  latter to the saved rear-seat value would conflict with the HTTPS off state.
+- [BeauGiles' Deepal normalizer](https://github.com/BeauGiles/ha-deepal-cloud/blob/main/custom_components/deepal/api.py)
+  also copies front defrost and steering-wheel heat values directly. These do
+  not reproduce the observed EU off states. They are not used to fill missing
+  Mazda enum codes.
+
+`chargDeltMins=8191` is now preserved as `charge.remainChargeTime=8191`, matching
+HTTPS. The existing sensor validator displays that sentinel as no estimate.
+Previously normalization changed it to null and partial-patch filtering omitted
+it, leaving an old estimate visible. Null/missing fields still preserve values.
+
 ### Observed locally on 2026-10-18
 
 - The saved European server response includes `properties/report` and
