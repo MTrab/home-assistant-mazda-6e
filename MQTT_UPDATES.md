@@ -117,6 +117,13 @@ the last mapped report, full/fallback intervals and fallback status. This lets a
 live trial distinguish an authenticated connection from actual incoming states.
 Control credentials are redacted along with the other config-entry credentials.
 
+Per-connection subscription diagnostics also count all non-retained reports,
+including reports with no mapped fields. They expose received field names,
+mapped output paths and the interval between the last two messages on each
+subscription. Payload values, credentials and device/topic IDs are not retained.
+These counters reset when a connection is rebuilt. The measured interval is
+MQTT message timing, not a measurement of the Mazda app's polling interval.
+
 Tests use explicit minimal Home Assistant facades. The Windows test environment
 does not include a running Home Assistant instance. Pure utility tests bypass
 the HA entry-point import when HA is not installed. Existing lock/login facade
