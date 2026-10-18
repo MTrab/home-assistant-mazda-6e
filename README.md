@@ -41,6 +41,11 @@ out of entity updates until verified. The same MQTT parser serves both regions;
 the new measurements
 have been compared with a European HTTPS snapshot, not a live Asia vehicle.
 
+Full refreshes preserve newer dated MQTT values per field, including changes
+received before the refresh started. Other snapshot fields still update. Once
+the snapshot timestamp catches up, its values take precedence. Reports without
+usable timestamps cannot provide the same ordering guarantee.
+
 **Validation status:** The branch is installed in Home Assistant 2026.10.2 for a
 European account. Regional bootstrap and persistent MQTT login succeeded;
 diagnostics show a connected session, 900-second reconciliation and inactive

@@ -304,8 +304,9 @@ def merge_status(current: Mapping[str, Any], patch: Mapping[str, Any]) -> dict[s
         elif isinstance(value, list):
             previous = old if isinstance(old, list) else []
             result[key] = [
-                item if item is not None else previous[index] if index < len(previous) else None
-                for index, item in enumerate(value)
+                value[index] if index < len(value) and value[index] is not None
+                else previous[index] if index < len(previous) else None
+                for index in range(max(len(value), len(previous)))
             ]
         elif value is not None:
             result[key] = value
@@ -321,6 +322,50 @@ def apply_status_patch(current: Mapping[str, Any], patch: Mapping[str, Any]) -> 
     except (TypeError, ValueError):
         pass
     return merge_status(current, patch)
+
+
+class MqttStatusUpdates:
+    """Keep the latest dated MQTT value per field until a snapshot catches up."""
+
+    def __init__(self):
+        self._fields = {}
+
+    def record(self, patch: Mapping[str, Any]) -> None:
+        updated = _number(patch.get("lastUpdatedAt"))
+
+        def walk(value, path=()):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key != "lastUpdatedAt":
+                        walk(item, (*path, key))
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    walk(item, (*path, index))
+            elif value is not None:
+                if updated is None:
+                    self._fields.pop(path, None)
+                else:
+                    previous = self._fields.get(path)
+                    if previous is None or updated >= previous[0]:
+                        self._fields[path] = (updated, value)
+
+        walk(patch)
+
+    def reconcile(self, snapshot: Mapping[str, Any], *, current=None) -> dict[str, Any]:
+        updated = _number(snapshot.get("lastUpdatedAt"))
+        result = dict(snapshot if current is None else current)
+        if updated is None:
+            self._fields.clear()
+            return result
+        self._fields = {
+            path: field for path, field in self._fields.items() if field[0] > updated
+        }
+        for path, (timestamp, value) in self._fields.items():
+            for part in reversed(path):
+                value = [None] * part + [value] if isinstance(part, int) else {part: value}
+            result = merge_status(result, value)
+            result["lastUpdatedAt"] = max(_number(result.get("lastUpdatedAt")), timestamp)
+        return result
 
 
 def status_patch(values: Mapping[str, Any]) -> dict[str, Any]:

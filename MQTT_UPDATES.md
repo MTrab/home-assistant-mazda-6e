@@ -41,11 +41,20 @@ fallback for the entry rather than silently claiming all vehicles have push.
   [Home Assistant fetching-data documentation](https://contributors.home-assistant.io/core/integrations/fetching-data/).
 - Partial reports preserve omitted/null fields, other vehicles, configuration,
   preheating plans and unchanged elements of door/window arrays. Full snapshots
-  remain authoritative for missing/null fields.
+  remain authoritative except for fields with a newer dated MQTT value.
+- Each mapped MQTT field keeps its own timestamp, including individual array
+  members. An older full response cannot roll back that field, even when the
+  MQTT report arrived before the refresh started. Other snapshot fields still
+  update. A snapshot at or after the field timestamp retires the saved value;
+  equal-timestamp snapshots are authoritative. Removed vehicles are discarded.
+  The cache holds one value per field, not an accumulating report history.
 - Reports with comparable timestamps older than the current snapshot are ignored.
   Reports received during a full fetch are replayed in order against its result,
   preserving newer values without replaying older timestamped patches. Ordering
   cannot be established from a report without a usable timestamp.
+  An undated change retires the previous dated cache value for the same field.
+  A full snapshot without a usable timestamp clears the cache; updates received
+  during that request are still replayed in arrival order.
 - Retained reports are acknowledged but do not overwrite a fresh snapshot after
   connection. Normal duplicate QoS 1 deliveries are safe to merge again.
 - PINGREQ/PINGRESP, QoS 1 acknowledgements, subscription rejection, read-response

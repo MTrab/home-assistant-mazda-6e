@@ -582,6 +582,108 @@ def test_reports_during_full_refresh_preserve_chronological_order(coordinator_co
     asyncio.run(scenario())
 
 
+def test_older_full_refresh_preserves_mqtt_fields_received_before_request(coordinator_context):
+    module, Hass = coordinator_context
+
+    async def scenario():
+        coordinator = module.Mazda6eCoordinator(Hass(), None, None)
+        coordinator.data = vehicle_data()
+        coordinator._handle_mqtt_update(1, {
+            "lastUpdatedAt": 300, "hvac": {"defrostStatus": 1},
+            "window": {"windows": [1, None, None, None]},
+        })
+
+        async def fetch():
+            result = vehicle_data(soc=75, updated=200)
+            result[1]["status"].update({
+                "hvac": {"defrostStatus": 0, "insideTemp": 220},
+                "window": {"windows": [0, 0, 0, 1]},
+            })
+            return result
+
+        coordinator._async_fetch_full_data = fetch
+        result = await coordinator._async_update_data()
+        assert result[1]["status"]["hvac"] == {"defrostStatus": 1, "insideTemp": 220}
+        assert result[1]["status"]["window"]["windows"] == [1, 0, 0, 1]
+        assert result[1]["status"]["vehicleStatus"]["soc"] == 75
+        assert result[1]["status"]["lastUpdatedAt"] == 300
+
+    asyncio.run(scenario())
+
+
+def test_reconciliation_expires_each_mqtt_field_at_snapshot_timestamp(modules):
+    _, _, mqtt = modules
+    updates = mqtt.MqttStatusUpdates()
+    updates.record({"lastUpdatedAt": 200, "hvac": {"defrostStatus": 1}})
+    updates.record({"lastUpdatedAt": 300, "charge": {"maxSocPercent": 85}})
+    snapshot = {
+        "lastUpdatedAt": "250", "hvac": {"defrostStatus": 0},
+        "charge": {"maxSocPercent": 80},
+    }
+    assert updates.reconcile(snapshot) == {
+        "lastUpdatedAt": 300, "hvac": {"defrostStatus": 0},
+        "charge": {"maxSocPercent": 85},
+    }
+    newer = {"lastUpdatedAt": 300, "charge": {"maxSocPercent": 90}}
+    assert updates.reconcile(newer) == newer
+    assert updates.reconcile({"lastUpdatedAt": 100}) == {"lastUpdatedAt": 100}
+
+
+def test_undated_change_retires_previous_dated_value_for_same_field(modules):
+    _, _, mqtt = modules
+    updates = mqtt.MqttStatusUpdates()
+    updates.record({"lastUpdatedAt": 300, "hvac": {"defrostStatus": 1}})
+    updates.record({"hvac": {"defrostStatus": 0}})
+    snapshot = {"lastUpdatedAt": 200, "hvac": {"defrostStatus": 0}}
+    assert updates.reconcile(snapshot) == snapshot
+    updates.record({"lastUpdatedAt": 400, "hvac": {"defrostStatus": 1}})
+    undated = {"hvac": {"defrostStatus": 0}}
+    assert updates.reconcile(undated) == undated
+    assert updates.reconcile(snapshot) == snapshot
+
+
+def test_mixed_dated_and_undated_reports_during_refresh(coordinator_context):
+    module, Hass = coordinator_context
+
+    async def scenario():
+        coordinator = module.Mazda6eCoordinator(Hass(), None, None)
+        coordinator.data = vehicle_data()
+
+        async def fetch():
+            coordinator._handle_mqtt_update(1, {"hvac": {"defrostStatus": 0}})
+            coordinator._handle_mqtt_update(1, {"lastUpdatedAt": 300, "hvac": {"defrostStatus": 1}})
+            coordinator._handle_mqtt_update(1, {"lastUpdatedAt": 400, "vehicleStatus": {"soc": 75}})
+            return vehicle_data(soc=70, updated=200)
+
+        coordinator._async_fetch_full_data = fetch
+        result = await coordinator._async_update_data()
+        assert result[1]["status"]["hvac"]["defrostStatus"] == 1
+        assert result[1]["status"]["vehicleStatus"]["soc"] == 75
+
+    asyncio.run(scenario())
+
+
+def test_reconciliation_drops_removed_vehicle_and_ignores_stale_report(coordinator_context):
+    module, Hass = coordinator_context
+
+    async def scenario():
+        coordinator = module.Mazda6eCoordinator(Hass(), None, None)
+        coordinator.data = vehicle_data(updated=300)
+        coordinator._handle_mqtt_update(1, {"lastUpdatedAt": 200, "hvac": {"defrostStatus": 1}})
+        assert 1 not in coordinator._mqtt_status_updates
+        coordinator._handle_mqtt_update(2, {"lastUpdatedAt": 400, "vehicleStatus": {"soc": 85}})
+
+        async def fetch():
+            return {1: vehicle_data(updated=350)[1]}
+
+        coordinator._async_fetch_full_data = fetch
+        result = await coordinator._async_update_data()
+        assert "hvac" not in result[1]["status"]
+        assert coordinator._mqtt_status_updates == {}
+
+    asyncio.run(scenario())
+
+
 def test_timers_are_independent_of_reports_and_unload_cleans_up(coordinator_context):
     module, Hass = coordinator_context
 

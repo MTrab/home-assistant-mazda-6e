@@ -12,7 +12,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from .const import DOMAIN, UPDATE_INTERVAL, FALLBACK_UPDATE_INTERVAL
 from .models import Mazda6eVehicle
 from .api import MazdaApiError
-from .mqtt import apply_status_patch
+from .mqtt import apply_status_patch, MqttStatusUpdates
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ class Mazda6eCoordinator(DataUpdateCoordinator):
         self._scheduled_refresh_tasks = set()
         self._refresh_lock = asyncio.Lock()
         self._full_refresh_updates = None
+        self._mqtt_status_updates = {}
         self._mqtt_restart = asyncio.Event()
         self._vehicle_ids = set()
         self._full_refresh_failed = False
@@ -103,11 +104,16 @@ class Mazda6eCoordinator(DataUpdateCoordinator):
         self._mqtt_reports_received += 1
         self._last_mqtt_report = monotonic()
         old = self.data[vehicle_id]
+        current_status = old.get("status") or {}
+        updated_status = apply_status_patch(current_status, patch)
+        # Rejected stale reports must not become candidates for later refreshes.
+        if updated_status != current_status:
+            self._mqtt_status_updates.setdefault(vehicle_id, MqttStatusUpdates()).record(patch)
         if self._full_refresh_updates is not None:
             self._full_refresh_updates.setdefault(vehicle_id, []).append(patch)
         self.async_set_updated_data({
             **self.data,
-            vehicle_id: {**old, "status": apply_status_patch(old.get("status") or {}, patch)},
+            vehicle_id: {**old, "status": updated_status},
         })
 
     def _handle_mqtt_ready(self) -> None:
@@ -252,10 +258,17 @@ class Mazda6eCoordinator(DataUpdateCoordinator):
                 data = await self._async_fetch_full_data()
                 # Reports received while HTTP/MQTT snapshots were in flight
                 # must survive the older full response arriving afterwards.
-                for vehicle_id, patches in self._full_refresh_updates.items():
-                    if vehicle_id in data:
-                        for patch in patches:
-                            data[vehicle_id]["status"] = apply_status_patch(data[vehicle_id]["status"] or {}, patch)
+                for vehicle_id, entry in data.items():
+                    snapshot = entry["status"] or {}
+                    current = snapshot
+                    for patch in self._full_refresh_updates.get(vehicle_id, []):
+                        current = apply_status_patch(current, patch)
+                    updates = self._mqtt_status_updates.get(vehicle_id)
+                    entry["status"] = updates.reconcile(snapshot, current=current) if updates else current
+                self._mqtt_status_updates = {
+                    vehicle_id: updates for vehicle_id, updates in self._mqtt_status_updates.items()
+                    if vehicle_id in data
+                }
                 ids = set(data)
                 if ids != self._vehicle_ids:
                     self._vehicle_ids = ids
