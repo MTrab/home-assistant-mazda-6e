@@ -334,6 +334,7 @@ def test_regional_bootstrap_and_shared_identity_connection(modules, monkeypatch,
             expected_host = "changanauto.sg" if region == "asia" else "changanauto.com.de"
             assert all(expected_host in call.args[0] for call in client._request.await_args_list)
             if region == "europe":
+                assert all(call.args[0].startswith("https://ca-m.iov.changanauto.com.de/") for call in client._request.await_args_list)
                 assert client._request.await_args_list[1].args[2] == {
                     "deviceType": "1", "deviceId": "car-cloud-unit",
                 }

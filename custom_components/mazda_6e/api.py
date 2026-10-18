@@ -340,7 +340,7 @@ class Mazda6EApi:
         headers = self._ca_headers()
         ca_base = (
             "https://cma-m.iov.changanauto.sg" if self.region == REGION_ASIA
-            else "https://cma-m.iov.changanauto.com.de"
+            else "https://ca-m.iov.changanauto.com.de"
         )
         device_id = str(self.deviceid or "").replace("-", "")
         if len(device_id) != 32 or any(char not in "0123456789abcdefABCDEF" for char in device_id):

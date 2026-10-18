@@ -7,8 +7,11 @@ Branch: `feature/mqtt-push-updates`. Based on fano0001's `main` at
 
 1. Perform the existing first full refresh, so entity creation uses a snapshot.
 2. Obtain `getConnConf` and `getAuthTokenByUserId` using the configured region.
-   EU uses `cma-m.iov.changanauto.com.de`; Asia uses
+   EU uses `ca-m.iov.changanauto.com.de`; Asia uses
    `cma-m.iov.changanauto.sg`. Broker addresses and topics come from the response.
+   EU first obtains the car's `THU_Service` device ID from `appGetCarConfFunc`,
+   then uses the documented `deviceType="1"`/car-device request. Asia retains
+   its existing app-device-ID and car-ID request.
 3. Open MQTT 5 over validated TLS, verify CONNACK and every SUBACK result, and
    complete Mazda's application login to obtain the service-encryption key.
 4. Subscribe to the configured `properties/report` and `events/up` topics,
