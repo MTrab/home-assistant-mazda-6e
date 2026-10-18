@@ -1,0 +1,126 @@
+# MQTT updates: implementation and evidence
+
+Branch: `feature/mqtt-push-updates`. Based on fano0001's `main` at
+`9e7b7dc` (v1.5.3), fetched on 2026-10-18.
+
+## Data flow
+
+1. Perform the existing first full refresh, so entity creation uses a snapshot.
+2. Obtain `getConnConf` and `getAuthTokenByUserId` using the configured region.
+   EU uses `cma-m.iov.changanauto.com.de`; Asia uses
+   `cma-m.iov.changanauto.sg`. Broker addresses and topics come from the response.
+3. Open MQTT 5 over validated TLS, verify CONNACK and every SUBACK result, and
+   complete Mazda's application login to obtain the service-encryption key.
+4. Subscribe to the configured `properties/report` and `events/up` topics,
+   together with login and status-read response topics. Do not subscribe to
+   command or property-write topics, or publish vehicle control commands.
+5. Decode report service envelopes and merge only the existing mapped fields
+   into the affected vehicle's coordinator status. This path performs no HTTP
+   request or MQTT property request. Unknown fields/enums are ignored.
+6. Reconcile all vehicles every 900 seconds. Reconnection also requests a full
+   refresh. EU retains the richer HTTPS snapshot; Asia reads through the same
+   persistent MQTT session, avoiding another CONNECT using that client ID.
+7. Fall back to the existing 60-second refresh cadence when disconnected or
+   after a failed full refresh. Retry MQTT with exponential backoff from five
+   seconds to five minutes. Renew bootstrap credentials on each connection attempt.
+
+Vehicles sharing the same broker/login identity share one connection. Their
+notification topics and snapshot configurations remain associated with their
+individual vehicle IDs. Different identities use separate connections. A changed
+vehicle list rebuilds the subscriptions. An unavailable subscription group causes
+fallback for the entry rather than silently claiming all vehicles have push.
+
+## State and lifecycle guarantees
+
+- Reports update coordinator data directly through `async_set_updated_data`.
+  Independent full/fallback timers are necessary because that method resets the
+  coordinator's built-in polling countdown. See the
+  [Home Assistant fetching-data documentation](https://contributors.home-assistant.io/core/integrations/fetching-data/).
+- Partial reports preserve omitted/null fields, other vehicles, configuration,
+  preheating plans and unchanged elements of door/window arrays. Full snapshots
+  remain authoritative for missing/null fields.
+- Reports with comparable timestamps older than the current snapshot are ignored.
+  Reports received during a full fetch are replayed in order against its result,
+  preserving newer values without replaying older timestamped patches. Ordering
+  cannot be established from a report without a usable timestamp.
+- Retained reports are acknowledged but do not overwrite a fresh snapshot after
+  connection. Normal duplicate QoS 1 deliveries are safe to merge again.
+- PINGREQ/PINGRESP, QoS 1 acknowledgements, subscription rejection, read-response
+  correlation, connection loss and cancellation are handled by one reader per
+  connection. Heartbeats never cancel a partially received packet. MQTT packet
+  and heartbeat semantics follow the
+  [MQTT 5 specification](https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html).
+- Background tasks belong to the config entry. Unload/shutdown removes timers,
+  cancels listeners and closes TLS transports. Home Assistant's disable-polling
+  option is respected; direct MQTT state updates remain enabled.
+- Vehicle-control command transport is unchanged. Its existing bounded status
+  confirmation still runs after a command; the 15-minute period is not a delay
+  imposed on user actions.
+
+## Evidence and remaining validation
+
+### Observed locally on 2026-10-18
+
+- The saved European server response includes `properties/report` and
+  `events/up` subscriptions, alongside property-read response topics. These
+  paths were not constructed from guessed device IDs.
+- A read-only connection to the configured European broker accepted MQTT
+  authentication, all selected subscriptions and Mazda's application login.
+- A status read succeeded over that persistent session.
+- A second 75-second observation using the final transport implementation
+  confirmed three PINGRESP replies and a still-connected session. No spontaneous
+  mapped report arrived. The returned snapshot included mapped SOC, range,
+  odometer, trunk and HVAC fields.
+- No spontaneous report arrived during a 45-second observation. This does not
+  establish whether the car reports while parked, which changes cause reports,
+  their latency, or whether all relevant services require extra activation.
+- A later attempt to validate a fresh EU HTTP bootstrap encountered the expired
+  local research HTTP session. Its token-refresh attempt failed and the library
+  retained its uncertainty marker; that research session requires login before
+  further HTTP testing. No Home Assistant config entry was accessed or changed.
+- Android app models declare `r`, `rs` and `sers` in `MqttEventData`, with both
+  `params` and `data` in `MqttPropertiesCarConditionRes`. Protected method bodies
+  are not treated as executed-code evidence. The report decoder is tested against
+  these model shapes and the existing snapshot encryption implementation; a
+  spontaneous encrypted report has not yet been captured to validate it end to end.
+
+The saved connection/auth responses and Android research files remain outside
+this integration repository. Credentials, vehicle IDs, VIN and raw captures are
+not included in tests or this document.
+
+### Offline verification
+
+Run `python -m pytest tests -q` and
+`python -m compileall -q custom_components/mazda_6e` with the existing Python
+test dependencies. Tests use synthetic credentials and a scripted in-memory MQTT
+peer, not Mazda servers. They cover direct report delivery, encryption, partial
+state merging, stale/in-flight reports, subscription rejection, heartbeat loss,
+reconnection, timer independence, per-vehicle routing, shared connections,
+regional bootstrap endpoints and unload cleanup.
+
+Integration diagnostics include MQTT connectivity, received report count, age of
+the last mapped report, full/fallback intervals and fallback status. This lets a
+live trial distinguish an authenticated connection from actual incoming states.
+Control credentials are redacted along with the other config-entry credentials.
+
+Tests use explicit minimal Home Assistant facades. The Windows test environment
+does not include a running Home Assistant instance. Pure utility tests bypass
+the HA entry-point import when HA is not installed. Existing lock/login facade
+fixtures were updated to reflect upstream's region field and refresh-until
+methods; the unchanged upstream baseline had one failure and four import errors.
+
+### Required before calling live push verified
+
+- Capture spontaneous state-bearing reports for a real EU vehicle and a real
+  Asia vehicle; verify decoding, field semantics, report timestamps and actual
+  entity changes without snapshot requests.
+- Validate fresh EU bootstrap with a valid HTTP session. The live EU transport
+  check used the saved connection configuration and MQTT auth token.
+- Test integration setup, controls, reconnect, reload and HA shutdown in Home
+  Assistant, including multiple vehicles where available.
+- Measure reporting behavior while driving, charging, parked and asleep. No
+  fixed push latency, wake-up behavior or server rate limit is claimed.
+
+Fields without an established MQTT mapping remain refreshed by the regional full
+snapshot. A healthy connection alone is not evidence that the car reports every
+state change.

@@ -1,4 +1,4 @@
-"""Minimal read-only MQTT 5 transport for Asia vehicle status."""
+"""Read-only MQTT 5 snapshots and persistent vehicle notifications."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import base64
 import gzip
 import hashlib
 import json
+import math
 import ssl
 import struct
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -70,6 +72,8 @@ async def _read_packet(reader: asyncio.StreamReader) -> tuple[int, bytes]:
         multiplier *= 128
         if multiplier > 128**3:
             raise MazdaMqttError("Invalid MQTT packet length")
+    if length > 4 * 1024 * 1024:
+        raise MazdaMqttError("MQTT packet is too large")
     return first, await reader.readexactly(length)
 
 
@@ -83,6 +87,8 @@ def _variable_integer(data: bytes, pos: int) -> tuple[int, int]:
         if not byte & 0x80:
             return value, pos
         multiplier *= 128
+        if multiplier > 128**3:
+            raise MazdaMqttError("Invalid MQTT property length")
     raise MazdaMqttError("Truncated MQTT property length")
 
 
@@ -90,15 +96,24 @@ def _parse_publish(first: int, body: bytes) -> tuple[str, dict[str, Any], int | 
     if len(body) < 2:
         raise MazdaMqttError("Invalid MQTT publish packet")
     topic_length = struct.unpack("!H", body[:2])[0]
+    qos = (first >> 1) & 0x03
+    if not topic_length or qos > 1 or 2 + topic_length >= len(body):
+        raise MazdaMqttError("Invalid MQTT publish header")
     pos = 2
     topic = body[pos:pos + topic_length].decode()
     pos += topic_length
     packet_id = None
-    if (first >> 1) & 0x03:
+    if qos:
+        if pos + 2 >= len(body):
+            raise MazdaMqttError("Truncated MQTT packet identifier")
         packet_id = struct.unpack("!H", body[pos:pos + 2])[0]
+        if packet_id == 0:
+            raise MazdaMqttError("Invalid MQTT packet identifier")
         pos += 2
     property_length, pos = _variable_integer(body, pos)
     pos += property_length
+    if pos >= len(body):
+        raise MazdaMqttError("Truncated MQTT payload")
     value = json.loads(body[pos:].decode())
     if not isinstance(value, dict):
         raise MazdaMqttError("Invalid MQTT payload")
@@ -234,18 +249,271 @@ def _params(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
         return {}
     result: dict[str, Any] = {}
     for field in ("rs", "sers"):
-        encrypted = payload.get(field)
-        if not isinstance(encrypted, str):
-            continue
-        try:
-            services = _decrypt_services(encrypted, key, request_id)
-        except (ValueError, OSError, json.JSONDecodeError):
+        encoded = payload.get(field)
+        if isinstance(encoded, list):
+            services = encoded
+        elif isinstance(encoded, str):
+            try:
+                services = _decrypt_services(encoded, key, request_id)
+            except (ValueError, OSError, json.JSONDecodeError):
+                continue
+        else:
             continue
         for service in services:
-            values = service.get("params") if isinstance(service, dict) else None
-            if isinstance(values, dict):
-                result.update(values)
+            if not isinstance(service, dict) or service.get("success") is False:
+                continue
+            # Both fields are declared by the app's MqttPropertiesCarConditionRes.
+            for name in ("data", "params"):
+                values = service.get(name)
+                if isinstance(values, dict):
+                    result.update(values)
     return result
+
+
+def notification_topics(config: Mapping[str, Any]) -> list[str]:
+    """Use only report/event subscriptions supplied by Mazda, never invented topics."""
+    infos = config.get("mqttConnectionInfos") or []
+    if not infos or not isinstance(infos[0], dict):
+        return []
+    return list(dict.fromkeys(
+        topic
+        for entry in infos[0].get("topicInfos") or []
+        if isinstance(entry, dict) and entry.get("msgType") in ("properties", "events")
+        for topic in entry.get("subTopics") or []
+        if isinstance(topic, str) and topic.endswith(("/properties/report", "/events/up"))
+    ))
+
+
+def merge_status(current: Mapping[str, Any], patch: Mapping[str, Any]) -> dict[str, Any]:
+    """Merge partial reports without clearing fields omitted from a report."""
+    result = dict(current)
+    for key, value in patch.items():
+        old = result.get(key)
+        if isinstance(value, dict):
+            result[key] = merge_status(old if isinstance(old, dict) else {}, value)
+        elif isinstance(value, list):
+            previous = old if isinstance(old, list) else []
+            result[key] = [
+                item if item is not None else previous[index] if index < len(previous) else None
+                for index, item in enumerate(value)
+            ]
+        elif value is not None:
+            result[key] = value
+    return result
+
+
+def apply_status_patch(current: Mapping[str, Any], patch: Mapping[str, Any]) -> dict[str, Any]:
+    """Discard a report older than the current vehicle snapshot, when dated."""
+    previous, updated = current.get("lastUpdatedAt"), patch.get("lastUpdatedAt")
+    try:
+        if previous is not None and updated is not None and float(updated) < float(previous):
+            return dict(current)
+    except (TypeError, ValueError):
+        pass
+    return merge_status(current, patch)
+
+
+def status_patch(values: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only mapped values present in a partial MQTT report.
+
+    Null, invalid and unknown fields do not overwrite the previous snapshot.
+    A scheduled full snapshot remains authoritative for missing/null values.
+    """
+    def present(value):
+        if isinstance(value, dict):
+            return {key: cleaned for key, item in value.items() if (cleaned := present(item)) is not None}
+        if isinstance(value, list):
+            return value if any(item is not None for item in value) else None
+        return value
+
+    return {
+        key: value for key, item in normalize_status(values).items()
+        if (value := present(item)) is not None and value != {}
+    }
+
+
+class MazdaMqttConnection:
+    """One authenticated connection, with one reader and correlated read requests.
+
+    Reports use the same encrypted service envelope as status responses. Only
+    already mapped fields are exposed; unknown fields never invent HA states.
+    """
+
+    HEARTBEAT_INTERVAL = 20
+
+    def __init__(self, config, password: str, on_notification: Callable[[str, dict], None]):
+        self.config = config
+        self._password = password
+        self._on_notification = on_notification
+        self._reader = None
+        self._writer = None
+        self._task = None
+        self._secret_key = None
+        self._pending = {}
+        self._write_lock = asyncio.Lock()
+        self._notifications = set(notification_topics(config))
+        self._ping_sent = None
+
+    @property
+    def connected(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    async def _write(self, packet: bytes) -> None:
+        async with self._write_lock:
+            self._writer.write(packet)
+            await self._writer.drain()
+
+    async def _receive(self):
+        first, body = await _read_packet(self._reader)
+        if first >> 4 == 14:
+            raise MazdaMqttError("MQTT broker disconnected")
+        if first >> 4 != 3:
+            return first, body, None
+        topic, payload, packet_id = _parse_publish(first, body)
+        if packet_id is not None:
+            await self._write(b"\x40\x04" + struct.pack("!H", packet_id) + b"\x00\x00")
+        return first, body, (topic, payload)
+
+    async def async_connect(self) -> None:
+        """Bound the TLS, subscription and application login handshake."""
+        try:
+            async with asyncio.timeout(25):
+                host, port = _broker(self.config)
+                login_pub, login_sub, properties = _topic_groups(self.config)
+                login_id = _topic_device_id(login_pub)
+                if not login_id or not self._notifications:
+                    raise MazdaMqttError("MQTT notification topics are missing")
+                context = await asyncio.to_thread(ssl.create_default_context)
+                self._reader, self._writer = await asyncio.open_connection(
+                    host, port, ssl=context, server_hostname=host,
+                )
+                await self._write(_connect_packet(login_id, login_id, self._password))
+                first, body = await _read_packet(self._reader)
+                if first != 0x20 or len(body) < 3 or body[1] != 0:
+                    raise MazdaMqttError("MQTT connection was rejected")
+                topics = list(dict.fromkeys([
+                    login_sub, *(response for _, response in properties),
+                    *sorted(self._notifications),
+                ]))
+                await self._write(_subscribe_packet(1, topics))
+                # Retained notifications may precede SUBACK. Initial status is
+                # refreshed once authenticated; retained messages are not changes.
+                while True:
+                    first, body, _ = await self._receive()
+                    if first == 0x90:
+                        break
+                if len(body) < 4 or body[:2] != b"\x00\x01":
+                    raise MazdaMqttError("Invalid MQTT subscription acknowledgement")
+                length, pos = _variable_integer(body, 2)
+                reasons = body[pos + length:]
+                if len(reasons) != len(topics) or any(code not in (0, 1) for code in reasons):
+                    raise MazdaMqttError("MQTT subscriptions were rejected")
+                request_id = _request_id(login_id)
+                await self._write(_publish_packet(login_pub, _login_payload(login_id, request_id)))
+                while self._secret_key is None:
+                    _, _, message = await self._receive()
+                    if message is not None and message[0] == login_sub:
+                        payload = message[1]
+                        if payload.get("r") == request_id:
+                            self._secret_key = _secret(payload)
+                            if self._secret_key is None:
+                                raise MazdaMqttError("MQTT application login was rejected")
+                self._task = asyncio.create_task(self._async_read_loop())
+        except BaseException:
+            await self.async_close()
+            raise
+
+    async def _async_heartbeat(self) -> None:
+        while True:
+            await asyncio.sleep(self.HEARTBEAT_INTERVAL)
+            if self._ping_sent is not None:
+                raise MazdaMqttError("MQTT heartbeat timed out")
+            self._ping_sent = asyncio.get_running_loop().time()
+            await self._write(b"\xc0\x00")
+
+    async def _async_read_loop(self) -> None:
+        failure = MazdaMqttError("MQTT connection closed")
+        heartbeat = asyncio.create_task(self._async_heartbeat())
+        read_task = asyncio.create_task(self._receive())
+        try:
+            while True:
+                # Never cancel a half-read packet to send a heartbeat.
+                done, _ = await asyncio.wait({read_task, heartbeat}, return_when=asyncio.FIRST_COMPLETED)
+                if heartbeat in done:
+                    await heartbeat
+                first, body, message = await read_task
+                read_task = asyncio.create_task(self._receive())
+                if first == 0xD0:
+                    self._ping_sent = None
+                if message is None:
+                    continue
+                topic, payload = message
+                future = self._pending.get((topic, payload.get("r")))
+                if future is not None and not future.done():
+                    future.set_result(payload)
+                # Reconnect refreshes a full snapshot; retained data must not
+                # overwrite it. Duplicate deliveries are safe partial merges.
+                if topic in self._notifications and not first & 0x01:
+                    patch = status_patch(_params(payload, self._secret_key))
+                    if patch:
+                        self._on_notification(topic, patch)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            failure = MazdaMqttError("MQTT notification connection failed")
+            raise failure from err
+        finally:
+            for task in (read_task, heartbeat):
+                task.cancel()
+            for task in (read_task, heartbeat):
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+            for future in self._pending.values():
+                if not future.done():
+                    future.set_exception(failure)
+
+    async def async_read_status(self, config: Mapping[str, Any]) -> dict[str, Any]:
+        """Read through this session, avoiding a second CONNECT with the same ID."""
+        if not self.connected:
+            raise MazdaMqttError("MQTT notification connection is unavailable")
+        login_pub, _, properties = _topic_groups(config)
+        login_id = _topic_device_id(login_pub)
+        async with asyncio.timeout(25):
+            for request_topic, response_topic in properties:
+                device_id = _topic_device_id(request_topic)
+                request_id = _request_id(device_id)
+                future = asyncio.get_running_loop().create_future()
+                pending_key = (response_topic, request_id)
+                self._pending[pending_key] = future
+                try:
+                    await self._write(_publish_packet(request_topic, _condition_payload(
+                        device_id, login_id, self._secret_key, request_id,
+                    )))
+                    payload = await future
+                    values = _params(payload, self._secret_key)
+                    if values:
+                        return normalize_status(values)
+                finally:
+                    self._pending.pop(pending_key, None)
+                    if not future.done():
+                        future.cancel()
+        raise MazdaMqttError("MQTT returned no vehicle status")
+
+    async def async_wait_disconnected(self) -> None:
+        await self._task
+
+    async def async_close(self) -> None:
+        task, self._task = self._task, None
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+        writer, self._writer = self._writer, None
+        if writer is not None:
+            writer.close()
+            with suppress(OSError, ssl.SSLError, TimeoutError):
+                async with asyncio.timeout(5):
+                    await writer.wait_closed()
 
 
 def _number(value: Any) -> int | float | None:
@@ -254,6 +522,8 @@ def _number(value: Any) -> int | float | None:
     try:
         number = float(value)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
         return None
     return int(number) if number.is_integer() else number
 
@@ -266,10 +536,14 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
     """Map only Asia fields whose semantics are established."""
     updated = _first(values, "lastUpdatedTime", "lastUpdatedAt", "latestDate")
     if isinstance(updated, str):
-        try:
-            updated = int(datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp() * 1000)
-        except ValueError:
-            updated = None
+        numeric = _number(updated)
+        if numeric is not None:
+            updated = numeric
+        else:
+            try:
+                updated = int(datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp() * 1000)
+            except ValueError:
+                updated = None
     charge_minutes = _number(values.get("chargDeltMins"))
     if charge_minutes == 8191:
         charge_minutes = None

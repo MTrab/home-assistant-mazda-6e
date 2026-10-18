@@ -7,6 +7,39 @@ This integration accepts your email and password and encrypts them internally. A
 
 The integration exposes a lock entity for the vehicle doors. Mazda's six-digit Control Passcode can be entered during setup or later through **Reconfigure**. The lock entity remains unavailable until the passcode and control key have been configured. Normal Home Assistant lock and unlock actions do not ask for a code.
 
+## Vehicle updates on this branch
+
+This branch adds persistent MQTT subscriptions for **Europe and Asia**. Mapped
+status values in Mazda's `properties/report` and `events/up` messages update
+entities directly; a report does not trigger another HTTP or MQTT status read.
+Only subscription topics returned by Mazda are used. Your own MQTT broker and
+Home Assistant's MQTT integration are not required.
+
+A full refresh runs every **15 minutes**, independently of incoming reports.
+It also runs after a successful MQTT connection/reconnection to recover changes
+missed while offline. Europe uses the existing HTTPS status endpoint for full
+refreshes; Asia reuses the open MQTT connection. If MQTT is unavailable, or a
+full refresh fails, automatic refresh falls back to **60 seconds**. MQTT reconnects
+with increasing delays, up to five minutes. Manual refresh and updates after
+vehicle controls continue to work. Disabling polling in the integration's Home
+Assistant system options disables the periodic, fallback and reconnect refreshes;
+MQTT reports still update entities.
+
+MQTT currently maps the previously implemented fields: battery percentage,
+remaining range, odometer, individual door/window states, trunk, cabin/target
+temperature, air-conditioning state, charging current and remaining charge time,
+plus update time when supplied. Omitted or null fields in a partial report keep
+their previous values. Fields without an established MQTT mapping, including
+lock and charging-status enums, still depend on full refreshes. Existing Asia
+snapshot limitations remain; this change does not invent additional field mappings.
+
+**Validation status:** European broker authentication, subscription acknowledgements
+and a status read on the persistent session were tested using saved research
+credentials. No spontaneous report arrived during the 45-second observation.
+Spontaneous vehicle-to-entity updates and live Asia connectivity still require
+validation. This is an experimental branch, not a claim of verified real-time
+updates. See [MQTT implementation and evidence](MQTT_UPDATES.md).
+
 # Installation
 
 ## With HACS
