@@ -3,6 +3,9 @@
 Branch: `feature/mqtt-push-updates`. Based on fano0001's `main` at
 `9e7b7dc` (v1.5.3), fetched on 2026-10-18.
 
+See [remaining and partial mappings](MQTT_REMAINING.md) for the current gaps,
+including the different effect of a full refresh in EU and Asia.
+
 ## Data flow
 
 1. Perform the existing first full refresh, so entity creation uses a snapshot.
@@ -281,6 +284,7 @@ methods; the unchanged upstream baseline had one failure and four import errors.
 - Measure reporting behavior while driving, charging, parked and asleep. No
   fixed push latency, wake-up behavior or server rate limit is claimed.
 
-Fields without an established MQTT mapping remain refreshed by the regional full
-snapshot. A healthy connection alone is not evidence that the car reports every
-state change.
+EU's HTTPS snapshot can refresh fields without an established MQTT mapping.
+Asia's full snapshot uses the same MQTT parser, so missing mappings remain
+missing there. A healthy connection alone is not evidence that the car reports
+every state change.
