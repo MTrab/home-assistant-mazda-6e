@@ -28,10 +28,15 @@ HEADERS_BASE = {
 class MazdaLoginError(Exception):
     """Mazda rejected an email and password login request."""
 
-    def __init__(self, code) -> None:
-        """Initialize the error with Mazda's non-sensitive response code."""
+    def __init__(self, code, message=None) -> None:
+        """Keep Mazda's error code and explanation without the response payload."""
         self.code = code
-        super().__init__(f"Mazda login rejected with code {code}")
+        self.message = (
+            " ".join(message.split())
+            if isinstance(message, str) and message.strip()
+            else "No error message returned by Mazda"
+        )
+        super().__init__(f"Mazda login rejected with code {code}: {self.message}")
 
 
 class MazdaApiError(Exception):
@@ -115,7 +120,7 @@ class Mazda6EApi:
             data = await resp.json()
 
             if not data.get("success"):
-                raise MazdaLoginError(data.get("code"))
+                raise MazdaLoginError(data.get("code"), data.get("msg"))
 
             self.token = data["data"]["token"]
             self.refresh = data["data"]["refreshToken"]

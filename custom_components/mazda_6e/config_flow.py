@@ -165,7 +165,9 @@ class Mazda6eConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not all(isinstance(data.get(key), str) and data[key] for key in ("token", "refreshToken")):
                 raise ValueError("Incomplete token pair")
         except MazdaLoginError as err:
-            _LOGGER.error("Login failed with Mazda response code %s", err.code)
+            _LOGGER.error(
+                "Login failed with Mazda response code %s: %s", err.code, err.message
+            )
             return self.async_show_form(
                 step_id=step_id,
                 data_schema=data_schema,
