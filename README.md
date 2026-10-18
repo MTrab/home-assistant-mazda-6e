@@ -33,12 +33,13 @@ their previous values. Fields without an established MQTT mapping, including
 lock and charging-status enums, still depend on full refreshes. Existing Asia
 snapshot limitations remain; this change does not invent additional field mappings.
 
-**Validation status:** European broker authentication, subscription acknowledgements
-and a status read on the persistent session were tested using saved research
-credentials. No spontaneous report arrived during the 45-second observation.
-Spontaneous vehicle-to-entity updates and live Asia connectivity still require
-validation. This is an experimental branch, not a claim of verified real-time
-updates. See [MQTT implementation and evidence](MQTT_UPDATES.md).
+**Validation status:** The branch is installed in Home Assistant 2026.10.2 for a
+European account. Regional bootstrap and persistent MQTT login succeeded;
+diagnostics show a connected session, 900-second reconciliation and inactive
+fallback. No spontaneous mapped report has been observed yet. Direct updates
+are covered by offline tests; spontaneous vehicle-to-entity updates and live
+Asia connectivity still require validation. See
+[MQTT implementation and evidence](MQTT_UPDATES.md).
 
 # Installation
 

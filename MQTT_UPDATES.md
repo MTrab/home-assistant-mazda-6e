@@ -86,6 +86,17 @@ fallback for the entry rather than silently claiming all vehicles have push.
   are not treated as executed-code evidence. The report decoder is tested against
   these model shapes and the existing snapshot encryption implementation; a
   spontaneous encrypted report has not yet been captured to validate it end to end.
+- The branch was copied over Samba to a live Home Assistant 2026.10.2 installation
+  after archiving the original component. SHA-256 checks verified the deployed
+  files. Configuration checks passed before restarting HA.
+- Live startup exposed an incorrect reuse of Asia's bootstrap host/request for
+  Europe. EU now uses the documented `ca-m` gateway and the car's configured THU
+  device; a regression test checks the exact host and request body. Asia keeps
+  its existing regional format.
+- Following that correction, the European entry loaded successfully. Integration
+  diagnostics reported `connected=true`, `full_refresh_interval_seconds=900`,
+  `fallback_interval_seconds=60` and `fallback_active=false`. All 50 registered
+  Mazda entities loaded with none unavailable. Report delivery remains unverified.
 
 The saved connection/auth responses and Android research files remain outside
 this integration repository. Credentials, vehicle IDs, VIN and raw captures are
@@ -117,10 +128,9 @@ methods; the unchanged upstream baseline had one failure and four import errors.
 - Capture spontaneous state-bearing reports for a real EU vehicle and a real
   Asia vehicle; verify decoding, field semantics, report timestamps and actual
   entity changes without snapshot requests.
-- Validate fresh EU bootstrap with a valid HTTP session. The live EU transport
-  check used the saved connection configuration and MQTT auth token.
 - Test integration setup, controls, reconnect, reload and HA shutdown in Home
-  Assistant, including multiple vehicles where available.
+  Assistant for Asia, and continue EU control/reconnect/reload testing, including
+  multiple vehicles where available. EU setup and restart have been tested.
 - Measure reporting behavior while driving, charging, parked and asleep. No
   fixed push latency, wake-up behavior or server rate limit is claimed.
 
