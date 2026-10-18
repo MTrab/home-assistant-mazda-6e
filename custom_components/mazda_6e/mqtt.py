@@ -327,10 +327,15 @@ def status_patch(values: Mapping[str, Any]) -> dict[str, Any]:
             return value if any(item is not None for item in value) else None
         return value
 
-    return {
+    patch = {
         key: value for key, item in normalize_status(values).items()
         if (value := present(item)) is not None and value != {}
     }
+    # A connection report can contain only latestDate/connectStatus. Its
+    # timestamp must not make the cached vehicle telemetry appear fresh.
+    if not any(isinstance(value, dict) and value for value in patch.values()):
+        return {}
+    return patch
 
 
 def _mapped_field_names(patch: Mapping[str, Any]) -> list[str]:
@@ -365,6 +370,7 @@ class MazdaMqttConnection:
         self._pending = {}
         self._write_lock = asyncio.Lock()
         self._notifications = set(notification_topics(config))
+        self._observed_topics = set(self._notifications)
         self._ping_sent = None
         self._report_stats = {}
 
@@ -373,11 +379,14 @@ class MazdaMqttConnection:
         """Field names and counters only; never payload values or device IDs."""
         now = monotonic()
         result = []
-        for index, topic in enumerate(sorted(self._notifications), 1):
+        device_ids = sorted(filter(None, {_topic_device_id(topic) for topic in self._observed_topics}))
+        devices = {device: index for index, device in enumerate(device_ids, 1)}
+        for index, topic in enumerate(sorted(self._observed_topics), 1):
             stats = self._report_stats.get(topic, {})
             result.append({
                 "subscription": index,
-                "kind": "/".join(topic.split("/")[-2:]),
+                "device": devices.get(_topic_device_id(topic)),
+                "kind": "properties/get/res" if topic.endswith("/properties/get/res") else "/".join(topic.split("/")[-2:]),
                 "reports": stats.get("reports", 0),
                 "mapped_reports": stats.get("mapped_reports", 0),
                 "envelope_fields": stats.get("envelope_fields", []),
@@ -431,6 +440,7 @@ class MazdaMqttConnection:
             async with asyncio.timeout(25):
                 host, port = _broker(self.config)
                 login_pub, login_sub, properties = _topic_groups(self.config)
+                self._observed_topics.update(response for _, response in properties)
                 login_id = _topic_device_id(login_pub)
                 if not login_id or not self._notifications:
                     raise MazdaMqttError("MQTT notification topics are missing")
@@ -504,11 +514,11 @@ class MazdaMqttConnection:
                     future.set_result(payload)
                 # Reconnect refreshes a full snapshot; retained data must not
                 # overwrite it. Duplicate deliveries are safe partial merges.
-                if topic in self._notifications and not first & 0x01:
+                if topic in self._observed_topics and not first & 0x01:
                     values = _params(payload, self._secret_key)
                     patch = status_patch(values)
                     self._record_report(topic, payload, values, patch)
-                    if patch:
+                    if patch and topic in self._notifications:
                         self._on_notification(topic, patch)
         except asyncio.CancelledError:
             raise

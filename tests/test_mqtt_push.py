@@ -169,7 +169,7 @@ def test_persistent_reports_update_directly_and_snapshots_reuse_connection(modul
             assert updates[0][1] == {"vehicleStatus": {"soc": 74}, "door": {"doors": [None, 1, None, None]}}
             assert broker.pubacks == [b"\x00\x23"]
             assert broker.requests == reads_before  # No status read per report.
-            stats = next(item for item in client.notification_diagnostics if item["reports"])
+            stats = next(item for item in client.notification_diagnostics if item["kind"] == suffix and item["reports"])
             assert stats["kind"] == suffix
             assert stats["reports"] == 2
             assert stats["mapped_reports"] == 1
@@ -179,6 +179,8 @@ def test_persistent_reports_update_directly_and_snapshots_reuse_connection(modul
             assert "private-payload-value" not in serialized
             assert "device-one" not in serialized
             assert "password" not in serialized
+            responses = [item for item in client.notification_diagnostics if item["kind"] == "properties/get/res"]
+            assert sum(item["reports"] for item in responses) == 2
             assert client.connected
         finally:
             await client.async_close()
@@ -248,8 +250,15 @@ def test_disconnect_fails_pending_snapshot_without_leaking_reader(modules, monke
 
 def test_numeric_timestamp_strings_and_nonfinite_values(modules):
     _, _, mqtt = modules
-    assert mqtt.status_patch({"lastUpdatedAt": "1792300000000"}) == {"lastUpdatedAt": 1792300000000}
+    assert mqtt.status_patch({"lastUpdatedAt": "1792300000000", "soc": 72}) == {
+        "lastUpdatedAt": 1792300000000, "vehicleStatus": {"soc": 72},
+    }
     assert mqtt.status_patch({"soc": "NaN", "remainedPowerMile": "inf"}) == {}
+
+
+def test_connection_report_does_not_refresh_vehicle_telemetry_timestamp(modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({"latestDate": "2026-10-18T13:00:00Z", "connectStatus": 1}) == {}
 
 
 def test_rejected_subscription_closes_transport(modules, monkeypatch):

@@ -123,6 +123,17 @@ mapped output paths and the interval between the last two messages on each
 subscription. Payload values, credentials and device/topic IDs are not retained.
 These counters reset when a connection is rebuilt. The measured interval is
 MQTT message timing, not a measurement of the Mazda app's polling interval.
+Already-subscribed `properties/get/res` messages are also observed, including
+responses with no matching HA request. These are reported separately from
+`properties/report` and `events/up` and are not applied as unsolicited state
+updates. No additional status requests are sent for this measurement.
+
+The first field-level observation contained only `latestDate` and `connectStatus`.
+Such a connectivity report previously passed the timestamp mapping and inflated
+the mapped-report count. Timestamp-only patches are now ignored, so they cannot
+make older vehicle telemetry appear fresh. Received-message diagnostics still
+count them and list their field names. The earlier mapped-report count by itself
+is therefore not evidence of climate, charging or lock telemetry delivery.
 
 Tests use explicit minimal Home Assistant facades. The Windows test environment
 does not include a running Home Assistant instance. Pure utility tests bypass
