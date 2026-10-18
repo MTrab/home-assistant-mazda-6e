@@ -165,7 +165,10 @@ def test_normalize_verified_fields(modules):
     assert status["vehicleStatus"] == {"soc": 72, "drvMileage": 310, "totalMileage": 1200.5}
     assert status["door"]["doors"] == [1, 0, 0, 1]
     assert status["window"]["windows"] == [0, 1, 0, 0]
-    assert status["hvac"] == {"insideTemp": 235, "remoteTemp": 210, "acStatus": 1}
+    assert status["hvac"] == {
+        "insideTemp": 235, "remoteTemp": 210, "acStatus": 1,
+        "insideHumidity": None, "insidePm25": None,
+    }
     assert status["charge"]["acChargeCurrent"] == 6.5
     assert status["charge"]["remainChargeTime"] == 45
     assert status["lastUpdatedAt"] == 123456

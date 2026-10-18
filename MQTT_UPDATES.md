@@ -62,6 +62,43 @@ fallback for the entry rather than silently claiming all vehicles have push.
 
 ## Evidence and remaining validation
 
+### Additional field mappings
+
+The European MQTT `properties/get/res` response was compared with the HTTPS
+status snapshot on 2026-10-18. The shared EU/Asia parser now also maps:
+
+| MQTT field | HTTPS status field | Conversion |
+| --- | --- | --- |
+| `chargeSoc` | `charge.maxSocPercent` | Numeric; separate from actual SOC |
+| `lfTyrePressure` | `tire.leftFront.pressure` | Truncate to whole kPa |
+| `rfTyrePressure` | `tire.rightFront.pressure` | Truncate to whole kPa |
+| `lrTyrePressure` | `tire.leftBack.pressure` | Truncate to whole kPa |
+| `rrTyrePressure` | `tire.rightBack.pressure` | Truncate to whole kPa |
+| `innerHumidity` | `hvac.insideHumidity` | Truncate to whole percent |
+| `pm25` | `hvac.insidePm25` | Numeric |
+
+The user changed the charge limit in the Mazda app and confirmed the new value;
+both MQTT and HTTPS returned that limit. These mappings apply to snapshots and
+partial notifications through the same parser. Nested empty tire dictionaries
+are removed from patches, so a missing tire cannot clear an existing reading or
+make a timestamp-only report count as telemetry. Tire warning states are kept.
+Tests use synthetic measurements and cover precision, partial tire updates,
+invalid values and preservation of fields with unverified enum mappings.
+
+This is not evidence that every push contains all these fields or that the
+same values have been verified on a live Asia vehicle. Spontaneous European
+reports have included telemetry field names as well as connectivity-only
+reports; the user observed immediate climate changes in the app and HA.
+
+`frontDefrostStatus`, `steeringWheelHeating` and `chargeStatus` differed from
+their HTTPS counterparts in the comparison. No enum translations are inferred
+from this single snapshot. `frontDefrosterSwitch` also exists, but its on/off
+mapping has not been verified. Door-lock enums remain unmapped.
+
+The available Android 1.2.3 DEX extracts contain empty implementations for the
+relevant `CarConditionManager` methods and native refresh handlers. They do not
+establish the missing conversions or which transport a manual app refresh uses.
+
 ### Observed locally on 2026-10-18
 
 - The saved European server response includes `properties/report` and

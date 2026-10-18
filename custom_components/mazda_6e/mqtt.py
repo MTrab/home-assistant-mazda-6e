@@ -322,7 +322,7 @@ def status_patch(values: Mapping[str, Any]) -> dict[str, Any]:
     """
     def present(value):
         if isinstance(value, dict):
-            return {key: cleaned for key, item in value.items() if (cleaned := present(item)) is not None}
+            return {key: cleaned for key, item in value.items() if (cleaned := present(item)) is not None} or None
         if isinstance(value, list):
             return value if any(item is not None for item in value) else None
         return value
@@ -596,7 +596,7 @@ def _first(values: Mapping[str, Any], *keys: str) -> Any:
 
 
 def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
-    """Map only Asia fields whose semantics are established."""
+    """Map verified EU/Asia MQTT fields to the HTTPS status model."""
     updated = _first(values, "lastUpdatedTime", "lastUpdatedAt", "latestDate")
     if isinstance(updated, str):
         numeric = _number(updated)
@@ -612,6 +612,14 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
         charge_minutes = None
     inside = _number(values.get("vehicleTemperature"))
     target = _number(values.get("airConditioningSetTemperature"))
+    humidity = _number(values.get("innerHumidity"))
+    tires = {}
+    for position, field in (
+        ("leftFront", "lfTyrePressure"), ("rightFront", "rfTyrePressure"),
+        ("leftBack", "lrTyrePressure"), ("rightBack", "rrTyrePressure"),
+    ):
+        pressure = _number(values.get(field))
+        tires[position] = {"pressure": int(pressure) if pressure is not None else None}
     return {
         "lastUpdatedAt": _number(updated),
         "vehicleStatus": {
@@ -627,12 +635,16 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             _number(values.get("diverWindow")), _number(values.get("passengerWindow")),
             _number(values.get("leftRearWindow")), _number(values.get("rightRearWindow")),
         ]},
+        "tire": tires,
         "hvac": {
             "insideTemp": inside * 10 if inside is not None else None,
             "remoteTemp": target * 10 if target is not None else None,
             "acStatus": _number(values.get("airStatus")),
+            "insideHumidity": int(humidity) if humidity is not None else None,
+            "insidePm25": _number(values.get("pm25")),
         },
         "charge": {
+            "maxSocPercent": _number(values.get("chargeSoc")),
             "acChargeCurrent": _number(_first(values, "BattACChrgInCurr", "battACChrgInCurr")),
             "dcChargeCurrent": _number(_first(values, "BattDCChrgInCurr", "battDCChrgInCurr")),
             "remainChargeTime": charge_minutes,

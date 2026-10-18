@@ -25,20 +25,25 @@ vehicle controls continue to work. Disabling polling in the integration's Home
 Assistant system options disables the periodic, fallback and reconnect refreshes;
 MQTT reports still update entities.
 
-MQTT currently maps the previously implemented fields: battery percentage,
+MQTT maps battery percentage,
 remaining range, odometer, individual door/window states, trunk, cabin/target
 temperature, air-conditioning state, charging current and remaining charge time,
-plus update time when supplied. Omitted or null fields in a partial report keep
+plus update time when supplied. It also maps charge limit, all four tire pressures,
+cabin humidity and cabin PM2.5 to the HTTPS status fields. Tire pressure and
+humidity are truncated to whole numbers to match the observed HTTPS response.
+Omitted or null fields in a partial report keep
 their previous values. Fields without an established MQTT mapping, including
-lock and charging-status enums, still depend on full refreshes. Existing Asia
-snapshot limitations remain; this change does not invent additional field mappings.
+lock, defrost, steering-wheel heating and charging-status enums, still depend on
+full refreshes. The same MQTT parser serves both regions; the new measurements
+have been compared with a European HTTPS snapshot, not a live Asia vehicle.
 
 **Validation status:** The branch is installed in Home Assistant 2026.10.2 for a
 European account. Regional bootstrap and persistent MQTT login succeeded;
 diagnostics show a connected session, 900-second reconciliation and inactive
-fallback. No spontaneous mapped report has been observed yet. Direct updates
-are covered by offline tests; spontaneous vehicle-to-entity updates and live
-Asia connectivity still require validation. See
+fallback. Spontaneous telemetry reports have been observed, and the user observed
+instant climate changes. Report coverage for other controls and live Asia
+connectivity still require validation. Direct updates are also covered by offline
+tests. See
 [MQTT implementation and evidence](MQTT_UPDATES.md).
 
 # Installation

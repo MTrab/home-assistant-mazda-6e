@@ -46,6 +46,56 @@ def test_old_report_does_not_overwrite_newer_snapshot(modules):
     assert result == original
 
 
+def test_mqtt_measurements_match_https_status_shape_and_precision(modules):
+    _, _, mqtt = modules
+    patch = mqtt.status_patch({
+        "chargeSoc": 85.0, "socDsp": 52,
+        "lfTyrePressure": 241.9, "rfTyrePressure": 244.7,
+        "lrTyrePressure": 254.3, "rrTyrePressure": 251.6,
+        "innerHumidity": 78.5, "pm25": 0,
+    })
+    assert patch == {
+        "vehicleStatus": {"soc": 52},
+        "charge": {"maxSocPercent": 85},
+        "tire": {
+            "leftFront": {"pressure": 241}, "rightFront": {"pressure": 244},
+            "leftBack": {"pressure": 254}, "rightBack": {"pressure": 251},
+        },
+        "hvac": {"insideHumidity": 78, "insidePm25": 0},
+    }
+
+
+def test_single_tire_report_preserves_other_tires_and_warning(modules):
+    _, _, mqtt = modules
+    original = {
+        "tire": {
+            "leftFront": {"pressure": 240, "status": 1},
+            "rightBack": {"pressure": 250, "status": 0},
+        },
+        "charge": {"maxSocPercent": 80},
+    }
+    patch = mqtt.status_patch({"lfTyrePressure": "242.9", "chargeSoc": None})
+    assert patch == {"tire": {"leftFront": {"pressure": 242}}}
+    assert mqtt.apply_status_patch(original, patch) == {
+        "tire": {
+            "leftFront": {"pressure": 242, "status": 1},
+            "rightBack": {"pressure": 250, "status": 0},
+        },
+        "charge": {"maxSocPercent": 80},
+    }
+
+
+def test_unverified_enums_and_invalid_measurements_preserve_https_state(modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({
+        "latestDate": "2026-10-18T13:00:00Z",
+        "frontDefrostStatus": 1, "frontDefrosterSwitch": 0,
+        "steeringWheelHeating": 1, "chargeStatus": 3, "driverDoorLock": 2,
+        "lfTyrePressure": "NaN", "rfTyrePressure": None,
+        "innerHumidity": "inf", "pm25": True, "chargeSoc": "invalid",
+    }) == {}
+
+
 @pytest.mark.parametrize("encrypted", [False, True])
 def test_report_envelope_supports_declared_data_and_params(modules, encrypted):
     _, _, mqtt = modules
