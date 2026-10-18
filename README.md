@@ -33,8 +33,12 @@ cabin humidity and cabin PM2.5 to the HTTPS status fields. Tire pressure and
 humidity are truncated to whole numbers to match the observed HTTPS response.
 Omitted or null fields in a partial report keep
 their previous values. Fields without an established MQTT mapping, including
-lock, defrost, steering-wheel heating and charging-status enums, still depend on
-full refreshes. The same MQTT parser serves both regions; the new measurements
+unverified lock, steering-wheel heating and charging-status codes, still depend
+on full refreshes. Front defrost maps MQTT status 1/2 to HTTPS 0/1; its alternate
+switch field uses 0/1 directly. Conflicting defrost fields are ignored. Observed
+off/locked codes and power states 0/2 are also translated; other codes are kept
+out of entity updates until verified. The same MQTT parser serves both regions;
+the new measurements
 have been compared with a European HTTPS snapshot, not a live Asia vehicle.
 
 **Validation status:** The branch is installed in Home Assistant 2026.10.2 for a

@@ -162,12 +162,15 @@ def test_normalize_verified_fields(modules):
         "airStatus": 1, "BattACChrgInCurr": "6.5", "chargDeltMins": 45,
         "lastUpdatedAt": 123456,
     })
-    assert status["vehicleStatus"] == {"soc": 72, "drvMileage": 310, "totalMileage": 1200.5}
+    assert status["vehicleStatus"] == {
+        "soc": 72, "drvMileage": 310, "totalMileage": 1200.5,
+        "powerStatus": None, "steeringWheelHeater": None,
+    }
     assert status["door"]["doors"] == [1, 0, 0, 1]
     assert status["window"]["windows"] == [0, 1, 0, 0]
     assert status["hvac"] == {
         "insideTemp": 235, "remoteTemp": 210, "acStatus": 1,
-        "insideHumidity": None, "insidePm25": None,
+        "insideHumidity": None, "insidePm25": None, "defrostStatus": None,
     }
     assert status["charge"]["acChargeCurrent"] == 6.5
     assert status["charge"]["remainChargeTime"] == 45
@@ -177,8 +180,8 @@ def test_normalize_verified_fields(modules):
 def test_normalize_does_not_guess_enums(modules):
     _, _, mqtt = modules
     status = mqtt.normalize_status({"ChrgSts": 6, "driverDoorLock": 1})
-    assert "chargeStatus" not in status["charge"]
-    assert "driverLock" not in status["door"]
+    assert status["charge"]["chargeStatus"] is None
+    assert status["door"]["driverLock"] is None
 
 
 def test_charge_time_sentinel_is_unknown(modules):

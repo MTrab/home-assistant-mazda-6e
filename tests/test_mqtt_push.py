@@ -89,8 +89,8 @@ def test_unverified_enums_and_invalid_measurements_preserve_https_state(modules)
     _, _, mqtt = modules
     assert mqtt.status_patch({
         "latestDate": "2026-10-18T13:00:00Z",
-        "frontDefrostStatus": 1, "frontDefrosterSwitch": 0,
-        "steeringWheelHeating": 1, "chargeStatus": 3, "driverDoorLock": 2,
+        "frontDefrostStatus": 3, "frontDefrosterSwitch": 3,
+        "steeringWheelHeating": 3, "chargeStatus": 9, "driverDoorLock": 2,
         "lfTyrePressure": "NaN", "rfTyrePressure": None,
         "innerHumidity": "inf", "pm25": True, "chargeSoc": "invalid",
     }) == {}
@@ -102,7 +102,7 @@ def test_enum_diagnostics_are_bounded_numeric_and_do_not_apply_states(modules):
     topic = "$vdp/device-one/properties/report"
     for index in range(40):
         values = {
-            "frontDefrostStatus": index % 2, "steeringWheelHeating": "1",
+            "frontDefrostStatus": 3, "steeringWheelHeating": "3",
             "driverDoorLock": "private-value", "chargeStatus": "NaN",
             "token": "secret", "unknown": "private-value",
             "latestDate": "2026-10-18T13:00:00Z",
@@ -112,11 +112,46 @@ def test_enum_diagnostics_are_bounded_numeric_and_do_not_apply_states(modules):
     assert stats["mapped_reports"] == 0
     assert len(stats["enum_reports"]) == 32
     assert stats["enum_reports"][-1]["values"] == {
-        "frontDefrostStatus": 1, "steeringWheelHeating": 1,
+        "frontDefrostStatus": 3, "steeringWheelHeating": 3,
     }
     assert stats["enum_reports"][-1]["lastUpdatedAt"] == 1792328400000
     assert "private-value" not in json.dumps(stats)
     assert "secret" not in json.dumps(stats)
+
+
+@pytest.mark.parametrize(("values", "expected"), [
+    ({"frontDefrostStatus": 1}, 0),
+    ({"frontDefrostStatus": 2}, 1),
+    ({"frontDefrosterSwitch": 0}, 0),
+    ({"frontDefrosterSwitch": "1"}, 1),
+    ({"frontDefrostStatus": 2, "frontDefrosterSwitch": 1}, 1),
+    ({"frontDefrostStatus": 1, "frontDefrosterSwitch": 1}, None),
+    ({"frontDefrostStatus": 0}, None),
+    ({"frontDefrosterSwitch": 2}, None),
+    ({"frontDefrosterSwitch": True}, None),
+])
+def test_defrost_translation(values, expected, modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch(values) == (
+        {"hvac": {"defrostStatus": expected}} if expected is not None else {}
+    )
+
+
+def test_observed_enum_values_translate_to_https_values(modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({
+        "steeringWheelHeating": 1, "chargeStatus": 3,
+        "driverDoorLock": 0, "passengerDoorLock": 0, "powerStatusFeedBack": 2,
+    }) == {
+        "vehicleStatus": {"steeringWheelHeater": 0, "powerStatus": 2},
+        "charge": {"chargeStatus": 0},
+        "door": {"driverLock": 0, "passengerLock": 0},
+    }
+    assert mqtt.status_patch({"powerStatusFeedBack": 0}) == {"vehicleStatus": {"powerStatus": 0}}
+    assert mqtt.status_patch({
+        "steeringWheelHeating": 2, "chargeStatus": 6,
+        "driverDoorLock": 1, "passengerDoorLock": 2, "powerStatusFeedBack": 1,
+    }) == {}
 
 
 @pytest.mark.parametrize("encrypted", [False, True])

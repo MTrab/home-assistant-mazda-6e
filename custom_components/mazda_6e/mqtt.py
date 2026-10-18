@@ -621,6 +621,10 @@ def _first(values: Mapping[str, Any], *keys: str) -> Any:
     return next((values[key] for key in keys if values.get(key) is not None), None)
 
 
+def _enum(value: Any, mapping: Mapping[int, int]) -> int | None:
+    return mapping.get(_number(value))
+
+
 def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
     """Map verified EU/Asia MQTT fields to the HTTPS status model."""
     updated = _first(values, "lastUpdatedTime", "lastUpdatedAt", "latestDate")
@@ -639,6 +643,10 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
     inside = _number(values.get("vehicleTemperature"))
     target = _number(values.get("airConditioningSetTemperature"))
     humidity = _number(values.get("innerHumidity"))
+    defrost = _enum(values.get("frontDefrostStatus"), {1: 0, 2: 1})
+    if values.get("frontDefrosterSwitch") is not None:
+        switch = _enum(values["frontDefrosterSwitch"], {0: 0, 1: 1})
+        defrost = switch if defrost is None or switch == defrost else None
     tires = {}
     for position, field in (
         ("leftFront", "lfTyrePressure"), ("rightFront", "rfTyrePressure"),
@@ -652,11 +660,16 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             "soc": _number(_first(values, "soc", "socDsp", "remainPower")),
             "drvMileage": _number(_first(values, "remainedPowerMile", "totalResidualMileage")),
             "totalMileage": _number(values.get("totalOdometer")),
+            "powerStatus": _enum(values.get("powerStatusFeedBack"), {0: 0, 2: 2}),
+            "steeringWheelHeater": _enum(values.get("steeringWheelHeating"), {1: 0}),
         },
         "door": {"doors": [
             _number(values.get("driverDoor")), _number(values.get("passengerDoor")),
             _number(values.get("leftRearDoor")), _number(values.get("rightRearDoor")),
-        ], "trunk": _number(values.get("trunk"))},
+        ], "trunk": _number(values.get("trunk")),
+            "driverLock": _enum(values.get("driverDoorLock"), {0: 0}),
+            "passengerLock": _enum(values.get("passengerDoorLock"), {0: 0}),
+        },
         "window": {"windows": [
             _number(values.get("diverWindow")), _number(values.get("passengerWindow")),
             _number(values.get("leftRearWindow")), _number(values.get("rightRearWindow")),
@@ -666,10 +679,12 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             "insideTemp": inside * 10 if inside is not None else None,
             "remoteTemp": target * 10 if target is not None else None,
             "acStatus": _number(values.get("airStatus")),
+            "defrostStatus": defrost,
             "insideHumidity": int(humidity) if humidity is not None else None,
             "insidePm25": _number(values.get("pm25")),
         },
         "charge": {
+            "chargeStatus": _enum(values.get("chargeStatus"), {3: 0}),
             "maxSocPercent": _number(values.get("chargeSoc")),
             "acChargeCurrent": _number(_first(values, "BattACChrgInCurr", "battACChrgInCurr")),
             "dcChargeCurrent": _number(_first(values, "BattDCChrgInCurr", "battDCChrgInCurr")),

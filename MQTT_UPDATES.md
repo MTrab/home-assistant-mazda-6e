@@ -90,10 +90,28 @@ same values have been verified on a live Asia vehicle. Spontaneous European
 reports have included telemetry field names as well as connectivity-only
 reports; the user observed immediate climate changes in the app and HA.
 
-`frontDefrostStatus`, `steeringWheelHeating` and `chargeStatus` differed from
-their HTTPS counterparts in the comparison. No enum translations are inferred
-from this single snapshot. `frontDefrosterSwitch` also exists, but its on/off
-mapping has not been verified. Door-lock enums remain unmapped.
+### Enum translations
+
+The user enabled and disabled front defrost in the app. Spontaneous MQTT reports
+and subsequent HTTPS snapshots showed both transitions. The latest off report
+and HTTPS snapshot had the same vehicle timestamp. The shared parser translates:
+
+| MQTT field | Observed MQTT value | HTTPS field | HTTPS value |
+| --- | --- | --- | --- |
+| `frontDefrostStatus` | 1 / 2 | `hvac.defrostStatus` | 0 / 1 |
+| `frontDefrosterSwitch` | 0 / 1 | `hvac.defrostStatus` | 0 / 1 |
+| `powerStatusFeedBack` | 0 / 2 | `vehicleStatus.powerStatus` | 0 / 2 |
+| `steeringWheelHeating` | 1 | `vehicleStatus.steeringWheelHeater` | 0 |
+| `chargeStatus` | 3 | `charge.chargeStatus` | 0 |
+| `driverDoorLock` | 0 | `door.driverLock` | 0 |
+| `passengerDoorLock` | 0 | `door.passengerLock` | 0 |
+
+Defrost uses the switch field when present, with a status-field fallback. If
+both fields decode to different states, the patch does not update defrost.
+Other enum codes are not extrapolated from the observed codes. In particular,
+steering heat on, charging/complete/paused, unlocked and rear-lock codes remain
+unverified and do not overwrite cached HTTPS values. The 15-minute full refresh
+is still needed. Asia uses these same mappings but has not been tested live.
 
 The available Android 1.2.3 DEX extracts contain empty implementations for the
 relevant `CarConditionManager` methods and native refresh handlers. They do not
