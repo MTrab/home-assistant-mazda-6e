@@ -47,4 +47,6 @@ Batteriforvarmningsplanen har sit særskilte HTTPS-kald.
 
 Ukendte koder i delvise beskeder bevarer den eksisterende værdi. En mappet værdi
 er ikke en garanti for, at bilen sender en spontan besked ved hver ændring.
-De lokale observationer er fra EU; Asia er ikke verificeret på en bil.
+De lokale observationer er fra EU. Brugeren har den 24. oktober 2026 bekræftet,
+at Asia er afprøvet og fungerer. Det fastslår ikke i sig selv betydningen af
+de manglende statuskoder ovenfor.

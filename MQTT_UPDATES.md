@@ -275,6 +275,10 @@ methods; the unchanged upstream baseline had one failure and four import errors.
 
 ### Required before calling live push verified
 
+Update, 2026-10-24: the user reports that Asia has been tested and works.
+The outstanding checks below concern field coverage and specific scenarios;
+the EU observations do not establish every enum code in either region.
+
 - Capture spontaneous state-bearing reports for a real EU vehicle and a real
   Asia vehicle; verify decoding, field semantics, report timestamps and actual
   entity changes without snapshot requests.

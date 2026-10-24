@@ -52,8 +52,8 @@ usable timestamps cannot provide the same ordering guarantee.
 European account. Regional bootstrap and persistent MQTT login succeeded;
 diagnostics show a connected session, 900-second reconciliation and inactive
 fallback. Spontaneous telemetry reports have been observed, and the user observed
-instant climate changes. Report coverage for other controls and live Asia
-connectivity still require validation. Direct updates are also covered by offline
+instant climate changes. The user has also reported Asia tested and working.
+The unresolved field mappings remain listed separately. Direct updates are also covered by offline
 tests. See
 [MQTT implementation and evidence](MQTT_UPDATES.md) and the
 [list of missing and partial mappings](MQTT_REMAINING.md).
