@@ -27,14 +27,16 @@ MQTT reports still update entities.
 
 MQTT maps battery percentage,
 remaining range, odometer, individual door/window states, trunk, cabin/target
-temperature, air-conditioning state, charging current and remaining charge time,
+temperature, air-conditioning state, AC/DC current from the supported current
+fields and remaining charge time,
 plus update time when supplied. It also maps charge limit, all four tire pressures,
 cabin humidity and cabin PM2.5 to the HTTPS status fields. Tire pressure and
 humidity are truncated to whole numbers to match the observed HTTPS response.
 Omitted or null fields in a partial report keep
 their previous values. Fields without an established MQTT mapping, including
-unverified lock, steering-wheel heating and charging-status codes, still depend
-on full refreshes. Front defrost maps MQTT status 1/2 to HTTPS 0/1; its alternate
+unverified lock, steering-wheel heating and charging-status codes, can still be
+updated by EU's HTTPS refresh. Asia's full refresh uses the same MQTT parser and
+does not fill gaps in that parser. Front defrost maps MQTT status 1/2 to HTTPS 0/1; its alternate
 switch field uses 0/1 directly. Conflicting defrost fields are ignored. Observed
 off/locked codes and power states 0/2 are also translated; other codes are kept
 out of entity updates until verified. The same MQTT parser serves both regions;
@@ -53,7 +55,8 @@ fallback. Spontaneous telemetry reports have been observed, and the user observe
 instant climate changes. Report coverage for other controls and live Asia
 connectivity still require validation. Direct updates are also covered by offline
 tests. See
-[MQTT implementation and evidence](MQTT_UPDATES.md).
+[MQTT implementation and evidence](MQTT_UPDATES.md) and the
+[list of missing and partial mappings](MQTT_REMAINING.md).
 
 # Installation
 
