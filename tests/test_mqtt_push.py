@@ -148,8 +148,9 @@ def test_observed_enum_values_translate_to_https_values(modules):
         "door": {"driverLock": 0, "passengerLock": 0},
     }
     assert mqtt.status_patch({"powerStatusFeedBack": 0}) == {"vehicleStatus": {"powerStatus": 0}}
+    assert mqtt.status_patch({"steeringWheelHeating": 2}) == {"vehicleStatus": {"steeringWheelHeater": 1}}
     assert mqtt.status_patch({
-        "steeringWheelHeating": 2, "chargeStatus": 6,
+        "steeringWheelHeating": 3, "chargeStatus": 6,
         "driverDoorLock": 1, "passengerDoorLock": 2, "powerStatusFeedBack": 1,
     }) == {}
 
@@ -199,7 +200,7 @@ def test_incomplete_seat_or_plug_report_does_not_invent_combined_state(modules):
     assert mqtt.status_patch({
         "driverSeatHeatStatus": 0, "driverSeatAirStatus": 3,
         "acChargeGunConnectionState": 0, "dcDhargeGunConnectionState": 1,
-    }) == {"seat": {"leftFront": {"heatStatus": 0}}}
+    }) == {"seat": {"leftFront": {"heatStatus": 0, "ventStatus": 3, "mode": 2}}}
 
 
 def test_remaining_unverified_codes_do_not_replace_https_values(modules):
@@ -207,8 +208,8 @@ def test_remaining_unverified_codes_do_not_replace_https_values(modules):
     assert mqtt.status_patch({
         "carStatus": 1, "lowBeam": 1, "highBeam": 2, "positionLamp": True,
         "turnLndicatorLeft": 1, "turnLndicatorRight": 3,
-        "driverSeatHeatStatus": 6, "passengerSeatHeatStatus": 2,
-        "driverSeatAirStatus": 1, "passengerSeatAirStatus": 3,
+        "driverSeatHeatStatus": 6, "passengerSeatHeatStatus": 4,
+        "driverSeatAirStatus": 6, "passengerSeatAirStatus": 4,
         "lfPressureWarning": 1, "rfPressureWarning": 2,
         "lrPressureWarning": 3, "rrPressureWarning": 255,
         "acChargeGunConnectionState": 1, "dcDhargeGunConnectionState": 1,
@@ -874,3 +875,33 @@ def test_unload_cancels_inflight_timer_refresh(coordinator_context):
         assert not coordinator._scheduled_refresh_tasks
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("prefix,position", [("driver", "leftFront"), ("passenger", "rightFront")])
+@pytest.mark.parametrize("level", [0, 1, 2, 3])
+def test_front_seat_heat_levels(prefix, position, level, modules):
+    _, _, mqtt = modules
+    patch = mqtt.status_patch({f"{prefix}SeatHeatStatus": level, f"{prefix}SeatAirStatus": 0})
+    assert patch == {"seat": {position: {"heatStatus": level, "ventStatus": 0, "mode": 1 if level else 0}}}
+
+
+@pytest.mark.parametrize("prefix,position", [("driver", "leftFront"), ("passenger", "rightFront")])
+@pytest.mark.parametrize("level", [1, 2, 3])
+def test_front_seat_ventilation_levels(prefix, position, level, modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({f"{prefix}SeatHeatStatus": 0, f"{prefix}SeatAirStatus": level}) == {
+        "seat": {position: {"heatStatus": 0, "ventStatus": level, "mode": 2}},
+    }
+
+
+def test_partial_active_seat_and_conflicting_modes(modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({"driverSeatHeatStatus": 2}) == {
+        "seat": {"leftFront": {"heatStatus": 2, "mode": 1}},
+    }
+    assert mqtt.status_patch({"passengerSeatAirStatus": 3}) == {
+        "seat": {"rightFront": {"ventStatus": 3, "mode": 2}},
+    }
+    assert mqtt.status_patch({"driverSeatHeatStatus": 2, "driverSeatAirStatus": 3}) == {
+        "seat": {"leftFront": {"heatStatus": 2, "ventStatus": 3}},
+    }

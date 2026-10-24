@@ -711,12 +711,19 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
         }
     seats = {}
     for position, prefix in (("leftFront", "driver"), ("rightFront", "passenger")):
-        heat = _enum(values.get(f"{prefix}SeatHeatStatus"), {0: 0})
-        vent = _enum(values.get(f"{prefix}SeatAirStatus"), {0: 0})
+        heat = _enum(values.get(f"{prefix}SeatHeatStatus"), {0: 0, 1: 1, 2: 2, 3: 3})
+        vent = _enum(values.get(f"{prefix}SeatAirStatus"), {0: 0, 1: 1, 2: 2, 3: 3})
+        mode = None
+        if heat == 0 and vent == 0:
+            mode = 0
+        elif heat is not None and heat > 0 and (vent is None or vent == 0):
+            mode = 1
+        elif vent is not None and vent > 0 and (heat is None or heat == 0):
+            mode = 2
         seats[position] = {
             "heatStatus": heat,
             "ventStatus": vent,
-            "mode": 0 if heat == 0 and vent == 0 else None,
+            "mode": mode,
         }
     ac_plug = _enum(values.get("acChargeGunConnectionState"), {0: 0})
     dc_plug = _enum(values.get("dcDhargeGunConnectionState"), {0: 0})
@@ -727,7 +734,7 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             "drvMileage": _number(_first(values, "remainedPowerMile", "totalResidualMileage")),
             "totalMileage": _number(values.get("totalOdometer")),
             "powerStatus": _enum(values.get("powerStatusFeedBack"), {0: 0, 2: 2}),
-            "steeringWheelHeater": _enum(values.get("steeringWheelHeating"), {1: 0}),
+            "steeringWheelHeater": _enum(values.get("steeringWheelHeating"), {1: 0, 2: 1}),
             "status": _enum(values.get("carStatus"), {2: 2}),
         },
         "door": {"doors": [
