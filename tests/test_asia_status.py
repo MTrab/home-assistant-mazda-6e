@@ -179,7 +179,7 @@ def test_normalize_verified_fields(modules):
 
 def test_normalize_does_not_guess_enums(modules):
     _, _, mqtt = modules
-    status = mqtt.normalize_status({"ChrgSts": 6, "driverDoorLock": 1})
+    status = mqtt.normalize_status({"ChrgSts": 6, "driverDoorLock": 2})
     assert status["charge"]["chargeStatus"] is None
     assert status["door"]["driverLock"] is None
 

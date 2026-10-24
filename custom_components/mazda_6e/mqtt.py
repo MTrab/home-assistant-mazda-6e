@@ -710,9 +710,14 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             "status": _enum(values.get(warning), {0: 0}),
         }
     seats = {}
-    for position, prefix in (("leftFront", "driver"), ("rightFront", "passenger")):
-        heat = _enum(values.get(f"{prefix}SeatHeatStatus"), {0: 0, 1: 1, 2: 2, 3: 3})
-        vent = _enum(values.get(f"{prefix}SeatAirStatus"), {0: 0, 1: 1, 2: 2, 3: 3})
+    for position, heat_field, vent_field in (
+        ("leftFront", "driverSeatHeatStatus", "driverSeatAirStatus"),
+        ("rightFront", "passengerSeatHeatStatus", "passengerSeatAirStatus"),
+        ("leftBack", "leftBackSeatHeatStatus", "leftBackSeatVentilateStatus"),
+        ("rightBack", "rightBackSeatHeatStatus", "rightBackSeatVentilateStatus"),
+    ):
+        heat = _enum(values.get(heat_field), {0: 0, 1: 1, 2: 2, 3: 3})
+        vent = _enum(values.get(vent_field), {0: 0, 1: 1, 2: 2, 3: 3})
         mode = None
         if heat == 0 and vent == 0:
             mode = 0
@@ -735,14 +740,14 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             "totalMileage": _number(values.get("totalOdometer")),
             "powerStatus": _enum(values.get("powerStatusFeedBack"), {0: 0, 2: 2}),
             "steeringWheelHeater": _enum(values.get("steeringWheelHeating"), {1: 0, 2: 1}),
-            "status": _enum(values.get("carStatus"), {2: 2}),
+            "status": _enum(values.get("carStatus"), {1: 1, 2: 2}),
         },
         "door": {"doors": [
             _number(values.get("driverDoor")), _number(values.get("passengerDoor")),
             _number(values.get("leftRearDoor")), _number(values.get("rightRearDoor")),
         ], "trunk": _number(values.get("trunk")),
-            "driverLock": _enum(values.get("driverDoorLock"), {0: 0}),
-            "passengerLock": _enum(values.get("passengerDoorLock"), {0: 0}),
+            "driverLock": _enum(values.get("driverDoorLock"), {0: 0, 1: 1}),
+            "passengerLock": _enum(values.get("passengerDoorLock"), {0: 0, 1: 1}),
         },
         "window": {"windows": [
             _number(values.get("diverWindow")), _number(values.get("passengerWindow")),
@@ -772,7 +777,7 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
             "chargeConStatus": 0 if ac_plug == 0 and dc_plug == 0 else None,
             "dcChargeGunConnectStatus": dc_plug,
             "acChargeCurrent": _number(_first(values, "BattACChrgInCurr", "battACChrgInCurr")),
-            "dcChargeCurrent": _number(_first(values, "BattDCChrgInCurr", "battDCChrgInCurr")),
+            "dcChargeCurrent": _number(_first(values, "BattDCChrgInCurr", "battDCChrgInCurr", "totalCurrent")),
             "remainChargeTime": charge_minutes,
         },
     }

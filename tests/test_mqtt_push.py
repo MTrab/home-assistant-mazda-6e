@@ -151,7 +151,7 @@ def test_observed_enum_values_translate_to_https_values(modules):
     assert mqtt.status_patch({"steeringWheelHeating": 2}) == {"vehicleStatus": {"steeringWheelHeater": 1}}
     assert mqtt.status_patch({
         "steeringWheelHeating": 3, "chargeStatus": 6,
-        "driverDoorLock": 1, "passengerDoorLock": 2, "powerStatusFeedBack": 1,
+        "driverDoorLock": 2, "passengerDoorLock": 2, "powerStatusFeedBack": 1,
     }) == {}
 
 
@@ -206,14 +206,14 @@ def test_incomplete_seat_or_plug_report_does_not_invent_combined_state(modules):
 def test_remaining_unverified_codes_do_not_replace_https_values(modules):
     _, _, mqtt = modules
     assert mqtt.status_patch({
-        "carStatus": 1, "lowBeam": 1, "highBeam": 2, "positionLamp": True,
+        "carStatus": 3, "lowBeam": 1, "highBeam": 2, "positionLamp": True,
         "turnLndicatorLeft": 1, "turnLndicatorRight": 3,
         "driverSeatHeatStatus": 6, "passengerSeatHeatStatus": 4,
         "driverSeatAirStatus": 6, "passengerSeatAirStatus": 4,
         "lfPressureWarning": 1, "rfPressureWarning": 2,
         "lrPressureWarning": 3, "rrPressureWarning": 255,
         "acChargeGunConnectionState": 1, "dcDhargeGunConnectionState": 1,
-        "totalCurrent": 10, "chargeCurrentVal": 0, "vehicleSpeed": 20,
+        "totalCurrent": "NaN", "chargeCurrentVal": 0, "vehicleSpeed": 20,
     }) == {}
 
 
@@ -904,4 +904,57 @@ def test_partial_active_seat_and_conflicting_modes(modules):
     }
     assert mqtt.status_patch({"driverSeatHeatStatus": 2, "driverSeatAirStatus": 3}) == {
         "seat": {"leftFront": {"heatStatus": 2, "ventStatus": 3}},
+    }
+
+
+@pytest.mark.parametrize("prefix,position", [("leftBack", "leftBack"), ("rightBack", "rightBack")])
+@pytest.mark.parametrize("level", [0, 1, 2, 3])
+@pytest.mark.parametrize("control", ["heat", "vent"])
+def test_rear_seat_levels(prefix, position, level, control, modules):
+    _, _, mqtt = modules
+    heat = level if control == "heat" else 0
+    vent = level if control == "vent" else 0
+    patch = mqtt.status_patch({f"{prefix}SeatHeatStatus": heat, f"{prefix}SeatVentilateStatus": vent})
+    assert patch == {"seat": {position: {
+        "heatStatus": heat, "ventStatus": vent,
+        "mode": (1 if control == "heat" else 2) if level else 0,
+    }}}
+
+
+def test_unsupported_rear_seat_code_preserves_snapshot(modules):
+    _, _, mqtt = modules
+    original = {"seat": {"leftBack": {"heatStatus": 0, "ventStatus": 0, "mode": 0}}}
+    patch = mqtt.status_patch({"leftBackSeatHeatStatus": 6, "leftBackSeatVentilateStatus": 6})
+    assert patch == {}
+    assert mqtt.apply_status_patch(original, patch) == original
+
+
+@pytest.mark.parametrize("code", [0, 1])
+def test_door_lock_codes(code, modules):
+    _, _, mqtt = modules
+    patch = mqtt.status_patch({"driverDoorLock": code, "passengerDoorLock": code})
+    assert patch == {"door": {"driverLock": code, "passengerLock": code}}
+
+
+@pytest.mark.parametrize("code", [1, 2])
+def test_vehicle_status_codes(code, modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({"carStatus": code}) == {"vehicleStatus": {"status": code}}
+
+
+@pytest.mark.parametrize("current", [0, 0.5, 11.8, 22.4, 23.2])
+def test_total_current_matches_dc_field_without_replacing_total_charge_current(current, modules):
+    _, _, mqtt = modules
+    original = {"charge": {"chargeCurrent": 0, "dcChargeCurrent": 19, "acChargeCurrent": 0}}
+    patch = mqtt.status_patch({"totalCurrent": current})
+    assert patch == {"charge": {"dcChargeCurrent": current}}
+    assert mqtt.apply_status_patch(original, patch) == {
+        "charge": {"chargeCurrent": 0, "dcChargeCurrent": current, "acChargeCurrent": 0},
+    }
+
+
+def test_explicit_dc_current_takes_priority_over_total_current(modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({"BattDCChrgInCurr": 0, "totalCurrent": 19}) == {
+        "charge": {"dcChargeCurrent": 0},
     }
