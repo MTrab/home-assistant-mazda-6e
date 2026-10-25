@@ -206,8 +206,8 @@ def test_incomplete_seat_or_plug_report_does_not_invent_combined_state(modules):
 def test_remaining_unverified_codes_do_not_replace_https_values(modules):
     _, _, mqtt = modules
     assert mqtt.status_patch({
-        "carStatus": 3, "lowBeam": 1, "highBeam": 2, "positionLamp": True,
-        "turnLndicatorLeft": 1, "turnLndicatorRight": 3,
+        "carStatus": 3, "lowBeam": 2, "highBeam": 2, "positionLamp": True,
+        "turnLndicatorLeft": 2, "turnLndicatorRight": 3,
         "driverSeatHeatStatus": 6, "passengerSeatHeatStatus": 4,
         "driverSeatAirStatus": 6, "passengerSeatAirStatus": 4,
         "lfPressureWarning": 1, "rfPressureWarning": 2,
@@ -958,3 +958,21 @@ def test_explicit_dc_current_takes_priority_over_total_current(modules):
     assert mqtt.status_patch({"BattDCChrgInCurr": 0, "totalCurrent": 19}) == {
         "charge": {"dcChargeCurrent": 0},
     }
+
+
+@pytest.mark.parametrize("raw,target", [
+    ("lowBeam", "lowBeam"), ("positionLamp", "positionLamp"), ("turnLndicatorLeft", "leftTurn"),
+    ("turnLndicatorRight", "rightTurn"),
+])
+@pytest.mark.parametrize("value", [0, 1])
+def test_observed_lamp_states(raw, target, value, modules):
+    _, _, mqtt = modules
+    assert mqtt.status_patch({raw: value}) == {"lamp": {target: value}}
+
+
+def test_unverified_high_beam_code_preserves_previous_state(modules):
+    _, _, mqtt = modules
+    original = {"lamp": {"highBeam": 0}}
+    patch = mqtt.status_patch({"highBeam": 1})
+    assert patch == {}
+    assert mqtt.apply_status_patch(original, patch) == original
