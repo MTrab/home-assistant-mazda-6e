@@ -756,9 +756,7 @@ def normalize_status(values: Mapping[str, Any]) -> dict[str, Any]:
         "tire": tires,
         "seat": seats,
         "lamp": {
-            target: _enum(values.get(source), {0: 0, 1: 1} if source in (
-                "lowBeam", "positionLamp", "turnLndicatorLeft", "turnLndicatorRight",
-            ) else {0: 0})
+            target: _enum(values.get(source), {0: 0, 1: 1})
             for target, source in (
                 ("lowBeam", "lowBeam"), ("highBeam", "highBeam"),
                 ("positionLamp", "positionLamp"),

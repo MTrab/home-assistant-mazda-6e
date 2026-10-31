@@ -961,7 +961,8 @@ def test_explicit_dc_current_takes_priority_over_total_current(modules):
 
 
 @pytest.mark.parametrize("raw,target", [
-    ("lowBeam", "lowBeam"), ("positionLamp", "positionLamp"), ("turnLndicatorLeft", "leftTurn"),
+    ("lowBeam", "lowBeam"), ("highBeam", "highBeam"),
+    ("positionLamp", "positionLamp"), ("turnLndicatorLeft", "leftTurn"),
     ("turnLndicatorRight", "rightTurn"),
 ])
 @pytest.mark.parametrize("value", [0, 1])
@@ -970,9 +971,10 @@ def test_observed_lamp_states(raw, target, value, modules):
     assert mqtt.status_patch({raw: value}) == {"lamp": {target: value}}
 
 
-def test_unverified_high_beam_code_preserves_previous_state(modules):
+@pytest.mark.parametrize("value", [2, -1, True, None])
+def test_unknown_high_beam_code_preserves_previous_state(value, modules):
     _, _, mqtt = modules
     original = {"lamp": {"highBeam": 0}}
-    patch = mqtt.status_patch({"highBeam": 1})
+    patch = mqtt.status_patch({"highBeam": value})
     assert patch == {}
     assert mqtt.apply_status_patch(original, patch) == original

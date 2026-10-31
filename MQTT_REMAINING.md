@@ -1,6 +1,6 @@
 # Missing and partial MQTT mappings
 
-Checked against `normalize_status()` in `mqtt.py` on October 25, 2026.
+Checked against `normalize_status()` in `mqtt.py` on October 31, 2026.
 This list describes what the integration applies to entities. Receiving a field
 in an MQTT message does not mean that the field has a usable mapping.
 
@@ -18,7 +18,6 @@ in an MQTT message does not mean that the field has a usable mapping.
 
 | State | What MQTT can update | What remains unresolved |
 | --- | --- | --- |
-| High beam | Raw code 0 maps to off | On and other codes |
 | Tire warnings | Raw code 0 maps to status 0 | Warning codes; tire pressure itself is already mapped |
 | Charging status | Raw `chargeStatus=3` maps to not charging | Charging, completed, paused and other codes |
 | Charge connection | Raw DC code 0 maps to disconnected; overall disconnected requires both AC and DC to be 0 | Connected and other codes; AC=0 alone does not establish overall connection status |
@@ -28,10 +27,12 @@ in an MQTT message does not mean that the field has a usable mapping.
 Window open/closed values are mapped, but the position order between MQTT and EU
 HTTPS has not been verified with different states on individual windows.
 Front defrost supports both off and on. Conflicting or unknown codes are ignored.
-Low beam, position lamps and both turn signals map codes 0/1 directly to off/on.
+Low beam, high beam, position lamps and both turn signals map codes 0/1 directly to off/on.
 Low beam and position lamps each have five on-state comparisons with identical
 MQTT/HTTPS report timestamps. The left turn signal has an on-state comparison
 with timestamps one second apart.
+High beam has 21 on-state comparisons with identical MQTT/HTTPS report
+timestamps across October 26, 27, 29 and 30.
 Steering-wheel heating maps raw code 1 to off and raw code 2 to on.
 Driver and passenger door locks map 0 to locked and 1 to unlocked. Rear-door
 lock codes are not applied.
@@ -49,10 +50,15 @@ including a negative value. The largest float rounding difference was below 0.00
 This establishes equivalence with the HTTPS field, not that the value represents
 charging through a DC connector. Nonzero values were observed while unplugged
 and driving. The physical meaning and sign convention remain to be established.
+The week-long capture added broader evidence: 737 matching comparisons against
+changed HTTPS DC-current values and three differences, despite identical report
+timestamps. A report timestamp does not guarantee simultaneous measurements of
+every field.
 
 The right-rear window has one open-state match at `window.windows[3]` with
-identical report timestamps. The other window positions still need individual
-open-state matches.
+identical report timestamps. The driver window also has two open-state matches at `window.windows[0]`
+with identical report timestamps. The passenger window has one nearby match
+at index 1; the left-rear window was never observed open.
 
 Seat heating and ventilation use levels 0-3 directly for all four positions. Seat
 mode is heating when heat is active and ventilation when ventilation is active.
